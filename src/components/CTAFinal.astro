@@ -1,0 +1,15 @@
+---
+import Button from './Button.astro';
+import { CTA_URL } from '../lib/constants';
+import { MessageCircle } from 'lucide-astro';
+---
+<section class="bg-bg-alt border-t border-border-line py-20 md:py-28">
+  <div class="max-w-3xl mx-auto px-4 md:px-6 text-center">
+    <h2 class="font-serif font-bold text-4xl md:text-6xl leading-tight mb-8">
+      Um zap de <span class="accent-underline">distância.</span>
+    </h2>
+    <Button href={CTA_URL} variant="primary">
+      <MessageCircle size={22} /> Começar agora
+    </Button>
+  </div>
+</section>

@@ -1,0 +1,36 @@
+---
+import Button from './Button.astro';
+import PhoneMockup from './PhoneMockup.astro';
+import { CTA_URL } from '../lib/constants';
+import { MessageCircle, ArrowDown } from 'lucide-astro';
+---
+<section class="relative overflow-hidden">
+  <div class="max-w-6xl mx-auto px-4 md:px-6 pt-12 md:pt-20 pb-16 md:pb-24">
+    <div class="grid md:grid-cols-2 gap-12 md:gap-8 items-center">
+      <div class="text-center md:text-left order-2 md:order-1">
+        <h1 class="font-serif font-bold text-text leading-[1.05] text-[2.5rem] sm:text-5xl md:text-6xl lg:text-7xl">
+          Nunca enfrente<br />
+          um dia difícil<br />
+          <span class="accent-underline">sozinho.</span>
+        </h1>
+
+        <p class="mt-6 md:mt-8 text-lg md:text-xl text-text-mute max-w-xl mx-auto md:mx-0 leading-relaxed">
+          Oração, palavra de Deus e uma escuta acolhedora — a qualquer hora, direto no seu WhatsApp. Sem app. Sem cadastro. Grátis.
+        </p>
+
+        <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
+          <Button href={CTA_URL} variant="primary">
+            <MessageCircle size={20} /> Começar no WhatsApp
+          </Button>
+          <Button href="#como-funciona" variant="secondary">
+            Ver como funciona <ArrowDown size={18} />
+          </Button>
+        </div>
+      </div>
+
+      <div class="order-1 md:order-2">
+        <PhoneMockup />
+      </div>
+    </div>
+  </div>
+</section>

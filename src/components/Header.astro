@@ -1,0 +1,71 @@
+---
+import Button from './Button.astro';
+import { CTA_URL, SITE_NAME } from '../lib/constants';
+import { MessageCircle, Menu, X } from 'lucide-astro';
+---
+<header class="sticky top-0 z-40 bg-bg/90 backdrop-blur-md border-b border-border-line">
+  <div class="max-w-6xl mx-auto px-4 md:px-6 h-16 md:h-20 flex items-center justify-between">
+    <a href="/" class="flex items-center gap-2" aria-label={SITE_NAME}>
+      <img src="/logo.svg" alt={SITE_NAME} class="h-9 md:h-10 w-auto" />
+    </a>
+
+    <nav class="hidden md:flex items-center gap-8 text-sm font-medium text-text-mute">
+      <a href="/#como-funciona" class="hover:text-text transition-colors">Como funciona</a>
+      <a href="/#o-que-faz" class="hover:text-text transition-colors">O que faz</a>
+      <a href="/#perguntas" class="hover:text-text transition-colors">Perguntas</a>
+    </nav>
+
+    <div class="hidden md:block">
+      <Button href={CTA_URL} variant="primary">
+        <MessageCircle size={18} /> Começar no WhatsApp
+      </Button>
+    </div>
+
+    <button
+      id="menu-toggle"
+      class="md:hidden p-2 -mr-2"
+      aria-label="Abrir menu"
+      aria-expanded="false"
+      aria-controls="mobile-menu"
+    >
+      <Menu size={24} class="menu-open" />
+      <X size={24} class="menu-close hidden" />
+    </button>
+  </div>
+
+  <div id="mobile-menu" class="hidden md:hidden border-t border-border-line bg-bg">
+    <div class="px-4 py-6 flex flex-col gap-4">
+      <a href="/#como-funciona" class="py-2 text-lg">Como funciona</a>
+      <a href="/#o-que-faz" class="py-2 text-lg">O que faz</a>
+      <a href="/#perguntas" class="py-2 text-lg">Perguntas</a>
+      <Button href={CTA_URL} variant="primary" class="mt-2 w-full">
+        <MessageCircle size={18} /> Começar no WhatsApp
+      </Button>
+    </div>
+  </div>
+</header>
+
+<script>
+  const toggle = document.getElementById('menu-toggle');
+  const menu = document.getElementById('mobile-menu');
+  const iconOpen = document.querySelector('.menu-open');
+  const iconClose = document.querySelector('.menu-close');
+
+  toggle?.addEventListener('click', () => {
+    const isOpen = !menu?.classList.contains('hidden');
+    menu?.classList.toggle('hidden');
+    iconOpen?.classList.toggle('hidden');
+    iconClose?.classList.toggle('hidden');
+    toggle.setAttribute('aria-expanded', String(!isOpen));
+    toggle.setAttribute('aria-label', isOpen ? 'Abrir menu' : 'Fechar menu');
+  });
+
+  document.querySelectorAll('#mobile-menu a').forEach(a => {
+    a.addEventListener('click', () => {
+      menu?.classList.add('hidden');
+      iconOpen?.classList.remove('hidden');
+      iconClose?.classList.add('hidden');
+      toggle?.setAttribute('aria-expanded', 'false');
+    });
+  });
+</script>

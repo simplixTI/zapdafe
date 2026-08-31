@@ -1,0 +1,50 @@
+---
+interface Message {
+  from: 'user' | 'ai';
+  text: string;
+}
+
+const messages: Message[] = [
+  { from: 'user', text: 'Tô ansioso pra reunião de amanhã 😔' },
+  { from: 'ai', text: 'Respira fundo. Deus vai à sua frente — Ele já está no amanhã. Quer que eu ore com você agora?' },
+  { from: 'user', text: 'Quero, sim' },
+  { from: 'ai', text: 'Senhor, entrego a Ti a reunião do irmão amanhã. Que a paz que excede todo entendimento guarde o coração dele. Amém. 🙏' },
+];
+---
+<div class="relative mx-auto max-w-[320px] md:max-w-[360px]">
+  <div class="relative aspect-[9/19] rounded-[3rem] bg-[#111] p-3 shadow-2xl">
+    <div class="absolute top-6 left-1/2 -translate-x-1/2 h-6 w-28 bg-black rounded-full z-10"></div>
+    <div class="h-full w-full rounded-[2.4rem] bg-bg overflow-hidden flex flex-col">
+      <div class="bg-[#075E54] text-white px-4 pt-10 pb-3 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-lg">🙏</div>
+        <div class="flex-1">
+          <div class="font-medium text-sm">Zapdafé</div>
+          <div class="text-xs text-white/70">online</div>
+        </div>
+      </div>
+      <div class="flex-1 p-3 space-y-2 overflow-hidden bg-[#ECE5DD]">
+        {messages.map(m => (
+          <div class={`flex ${m.from === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div class={`max-w-[85%] px-3 py-2 rounded-lg text-sm leading-snug shadow-sm ${
+              m.from === 'user'
+                ? 'bg-[#DCF8C6] text-[#1a1a1a] rounded-tr-none'
+                : 'bg-white text-[#1a1a1a] rounded-tl-none'
+            }`}>
+              {m.text}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+
+  <div class="hidden md:block absolute -left-8 top-16 bg-white shadow-lg rounded-full px-4 py-2 text-sm font-medium border border-border-line">
+    🕐 Disponível 24h
+  </div>
+  <div class="hidden md:block absolute -right-6 top-1/3 bg-white shadow-lg rounded-full px-4 py-2 text-sm font-medium border border-border-line">
+    📱 Sem app
+  </div>
+  <div class="hidden md:block absolute -left-6 bottom-24 bg-white shadow-lg rounded-full px-4 py-2 text-sm font-medium border border-border-line">
+    🔒 Privado
+  </div>
+</div>

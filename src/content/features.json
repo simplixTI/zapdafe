@@ -1,0 +1,32 @@
+[
+  {
+    "emoji": "🙏",
+    "title": "Oração",
+    "desc": "Peça uma oração personalizada pro que você tá vivendo.",
+    "example": "Ora comigo pela saúde da minha mãe"
+  },
+  {
+    "emoji": "💬",
+    "title": "Desabafo",
+    "desc": "Coloque pra fora o que tá pesando. Sem julgamento.",
+    "example": "Preciso desabafar sobre meu trabalho"
+  },
+  {
+    "emoji": "✨",
+    "title": "Reflexão diária",
+    "desc": "Uma palavra bíblica pra começar o dia.",
+    "example": "Me manda uma palavra pra hoje"
+  },
+  {
+    "emoji": "📖",
+    "title": "Conselho à luz da Bíblia",
+    "desc": "Dúvidas práticas com base nas Escrituras.",
+    "example": "O que a Bíblia diz sobre perdão?"
+  },
+  {
+    "emoji": "🌙",
+    "title": "Companhia",
+    "desc": "Nos momentos que ninguém mais pode acompanhar.",
+    "example": "Não consigo dormir, tô com medo"
+  }
+]

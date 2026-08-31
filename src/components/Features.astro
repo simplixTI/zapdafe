@@ -1,0 +1,25 @@
+---
+import features from '../content/features.json';
+---
+<section id="o-que-faz" class="py-20 md:py-28">
+  <div class="max-w-6xl mx-auto px-4 md:px-6">
+    <div class="text-center max-w-2xl mx-auto mb-12 md:mb-16">
+      <h2 class="font-serif font-bold text-3xl md:text-5xl leading-tight">
+        A Zapdafé tá aqui pra <span class="accent-underline">quando você precisar.</span>
+      </h2>
+    </div>
+
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
+      {features.map(f => (
+        <article class="bg-bg-alt border border-border-line rounded-2xl p-6 hover:-translate-y-0.5 hover:shadow-md transition-all">
+          <div class="text-3xl mb-3">{f.emoji}</div>
+          <h3 class="font-serif font-bold text-xl mb-2">{f.title}</h3>
+          <p class="text-text-mute mb-4 leading-relaxed">{f.desc}</p>
+          <div class="text-sm text-text-mute italic border-l-2 border-accent pl-3">
+            "{f.example}"
+          </div>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>

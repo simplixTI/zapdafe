@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 90" width="340" height="90" role="img" aria-label="Zapdafé">
+  <g transform="translate(6, 8)">
+    <path d="M 40 8 C 22 8 8 20 8 36 C 8 46 14 55 24 60 L 20 74 L 34 66 C 36 66 38 66 40 66 C 58 66 72 54 72 40 C 72 20 58 8 40 8 Z" fill="#D9CFB8" stroke="#1A1A1A" stroke-width="2" stroke-linejoin="round"/>
+    <g transform="translate(25, 22)" stroke="#1A1A1A" stroke-width="2" stroke-linecap="round" fill="none">
+      <line x1="15" y1="0" x2="12" y2="-6"/>
+      <line x1="15" y1="0" x2="15" y2="-8"/>
+      <line x1="15" y1="0" x2="18" y2="-6"/>
+      <line x1="4" y1="4" x2="0" y2="0"/>
+      <line x1="26" y1="4" x2="30" y2="0"/>
+    </g>
+    <g transform="translate(25, 24)" fill="#1A1A1A">
+      <path d="M 6 6 L 6 22 L 10 26 L 14 26 L 14 8 Q 14 5 11 5 Q 8 5 8 8 L 8 18" stroke="#1A1A1A" stroke-width="1.5" fill="#1A1A1A"/>
+      <path d="M 24 6 L 24 22 L 20 26 L 16 26 L 16 8 Q 16 5 19 5 Q 22 5 22 8 L 22 18" stroke="#1A1A1A" stroke-width="1.5" fill="#1A1A1A"/>
+    </g>
+  </g>
+  <text x="96" y="60" font-family="Fraunces, Georgia, serif" font-size="46" fill="#1A1A1A">
+    <tspan font-weight="700">Zap</tspan><tspan font-weight="400">da</tspan><tspan font-weight="700">fé</tspan>
+  </text>
+</svg>

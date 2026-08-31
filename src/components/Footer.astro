@@ -1,0 +1,33 @@
+---
+import { EMAIL_CONTATO, ANO_ATUAL, SITE_NAME } from '../lib/constants';
+---
+<footer class="bg-bg border-t border-border-line py-12 md:py-16">
+  <div class="max-w-6xl mx-auto px-4 md:px-6">
+    <div class="grid md:grid-cols-3 gap-8 md:gap-12 mb-10">
+      <div>
+        <img src="/logo.svg" alt={SITE_NAME} class="h-8 w-auto mb-3" />
+        <p class="text-sm text-text-mute">Feito com fé no Brasil 🇧🇷</p>
+      </div>
+
+      <div>
+        <h4 class="font-serif font-bold text-base mb-3">Institucional</h4>
+        <ul class="space-y-2 text-sm text-text-mute">
+          <li><a href="/privacidade" class="hover:text-text transition-colors">Política de Privacidade</a></li>
+          <li><a href="/termos" class="hover:text-text transition-colors">Termos de Uso</a></li>
+          <li><a href="/aviso-importante" class="hover:text-text transition-colors">Aviso Importante</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h4 class="font-serif font-bold text-base mb-3">Contato</h4>
+        <ul class="space-y-2 text-sm text-text-mute">
+          <li><a href={`mailto:${EMAIL_CONTATO}`} class="hover:text-text transition-colors">{EMAIL_CONTATO}</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="border-t border-border-line pt-6 text-xs text-text-mute text-center md:text-left">
+      © {ANO_ATUAL} {SITE_NAME} · A Zapdafé é uma IA e não substitui aconselhamento pastoral ou psicológico.
+    </div>
+  </div>
+</footer>

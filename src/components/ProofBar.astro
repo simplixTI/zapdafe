@@ -1,0 +1,20 @@
+---
+const items = [
+  { icon: '🕐', text: 'Disponível 24h' },
+  { icon: '📱', text: 'Sem app pra baixar' },
+  { icon: '✋', text: 'Sem cadastro' },
+  { icon: '💚', text: 'Grátis pra sempre' },
+];
+---
+<section class="bg-bg-alt border-y border-border-line py-8 md:py-10">
+  <div class="max-w-6xl mx-auto px-4 md:px-6">
+    <ul class="flex flex-wrap justify-center gap-x-8 gap-y-3 text-sm md:text-base text-text-mute font-medium">
+      {items.map(i => (
+        <li class="flex items-center gap-2">
+          <span class="text-lg">{i.icon}</span>
+          <span>{i.text}</span>
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>

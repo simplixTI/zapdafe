@@ -1,0 +1,65 @@
+---
+import Legal from '../layouts/Legal.astro';
+import { SITE_NAME, EMAIL_CONTATO, RAZAO_SOCIAL, CNPJ, FORO } from '../lib/constants';
+---
+<Legal
+  title="Termos de Uso"
+  description="Regras para usar a Zapdafé."
+  atualizadoEm="31 de agosto de 2026"
+>
+  <h2>1. Aceitação dos termos</h2>
+  <p>Ao enviar sua primeira mensagem para o {SITE_NAME}, você concorda com estes Termos de Uso. Se não concordar, não use o serviço.</p>
+
+  <h2>2. O que é o serviço</h2>
+  <p>O {SITE_NAME} é uma companhia espiritual cristã baseada em inteligência artificial, disponibilizada gratuitamente via WhatsApp. Oferece oração, escuta, reflexões bíblicas e conversa espiritual — <strong>não é um serviço profissional de aconselhamento pastoral, psicológico ou médico</strong>.</p>
+
+  <h2>3. Quem opera</h2>
+  <p>O serviço é operado por <strong>{RAZAO_SOCIAL}</strong>, CNPJ <strong>{CNPJ}</strong>.</p>
+
+  <h2>4. Elegibilidade</h2>
+  <p>O serviço é destinado a maiores de 18 anos. Adolescentes entre 13 e 17 anos podem usar apenas com autorização dos responsáveis legais. Não é permitido o uso por menores de 13 anos.</p>
+
+  <h2>5. Uso permitido</h2>
+  <p>Você pode usar o {SITE_NAME} para:</p>
+  <ul>
+    <li>Buscar companhia espiritual, oração e reflexão;</li>
+    <li>Fazer perguntas sobre a Bíblia e vida cristã;</li>
+    <li>Desabafar sobre o que está sentindo.</li>
+  </ul>
+
+  <h2>6. Uso proibido</h2>
+  <p>É proibido:</p>
+  <ul>
+    <li>Assediar, ofender ou usar linguagem de ódio;</li>
+    <li>Enviar spam, propaganda ou tentar comercializar produtos/serviços;</li>
+    <li>Tentar extrair prompts, contornar filtros de segurança ou fazer engenharia reversa da IA;</li>
+    <li>Usar o serviço para fins comerciais sem autorização escrita;</li>
+    <li>Compartilhar informações de terceiros sem consentimento;</li>
+    <li>Usar em atividades ilegais.</li>
+  </ul>
+  <p>Violações podem resultar em bloqueio imediato do seu número, sem aviso prévio.</p>
+
+  <h2>7. Limite de responsabilidade</h2>
+  <p><strong>A Zapdafé é uma inteligência artificial e pode cometer erros.</strong> Não somos responsáveis por decisões que você tomar com base nas respostas da IA.</p>
+  <p>Especificamente:</p>
+  <ul>
+    <li>A Zapdafé <strong>não substitui aconselhamento pastoral</strong> — para questões espirituais profundas, procure sua igreja/comunidade;</li>
+    <li>A Zapdafé <strong>não substitui atendimento psicológico ou psiquiátrico</strong> — em crise, ligue 188 (CVV);</li>
+    <li>A Zapdafé <strong>não substitui atendimento médico</strong> — em emergência, ligue 192 (SAMU).</li>
+  </ul>
+
+  <h2>8. Propriedade intelectual</h2>
+  <p>A marca "{SITE_NAME}", o site, o design e o sistema são de propriedade de {RAZAO_SOCIAL}. O conteúdo das suas conversas pertence a você.</p>
+
+  <h2>9. Suspensão e encerramento</h2>
+  <p>Podemos suspender ou encerrar seu acesso a qualquer momento, com ou sem aviso, especialmente em caso de violação destes Termos. Você pode parar de usar o serviço a qualquer momento — basta não mandar mais mensagens.</p>
+
+  <h2>10. Alterações destes Termos</h2>
+  <p>Podemos atualizar estes Termos. A versão atual estará sempre em <a href="/termos">zapdafe.com.br/termos</a>. Ao continuar usando após uma atualização, você aceita a nova versão.</p>
+
+  <h2>11. Foro e legislação aplicável</h2>
+  <p>Estes Termos são regidos pela legislação brasileira. Fica eleito o foro da comarca de <strong>{FORO}</strong> para dirimir qualquer disputa, com renúncia expressa a qualquer outro.</p>
+
+  <h2>12. Contato</h2>
+  <p>Dúvidas sobre estes Termos: <a href={`mailto:${EMAIL_CONTATO}`}>{EMAIL_CONTATO}</a>.</p>
+</Legal>

@@ -1,0 +1,74 @@
+---
+import Legal from '../layouts/Legal.astro';
+import { SITE_NAME, EMAIL_CONTATO, CNPJ, RAZAO_SOCIAL, ENDERECO, PROVEDOR_IA, RETENCAO_MSGS } from '../lib/constants';
+---
+<Legal
+  title="Política de Privacidade"
+  description="Como a Zapdafé coleta, usa e protege seus dados."
+  atualizadoEm="31 de agosto de 2026"
+>
+  <h2>1. Quem somos</h2>
+  <p>
+    O <strong>{SITE_NAME}</strong> é um serviço operado por <strong>{RAZAO_SOCIAL}</strong>, inscrita no CNPJ sob nº <strong>{CNPJ}</strong>, com sede em <strong>{ENDERECO}</strong>.
+  </p>
+  <p>Para qualquer questão sobre dados pessoais, entre em contato pelo email <a href={`mailto:${EMAIL_CONTATO}`}>{EMAIL_CONTATO}</a>.</p>
+
+  <h2>2. Quais dados coletamos</h2>
+  <p>Quando você usa o Zapdafé, coletamos:</p>
+  <ul>
+    <li><strong>Seu número de WhatsApp</strong> — necessário para você conversar com a IA;</li>
+    <li><strong>O conteúdo das mensagens</strong> que você troca com a IA (texto, áudio transcrito, imagens que você enviar);</li>
+    <li><strong>Metadados técnicos</strong> — horário das mensagens, tipo de dispositivo (quando disponível via WhatsApp).</li>
+  </ul>
+  <p>Não coletamos foto de perfil, lista de contatos, localização ou qualquer outro dado do seu WhatsApp além do que você nos envia.</p>
+
+  <h2>3. Como usamos seus dados</h2>
+  <ul>
+    <li><strong>Prestar o serviço</strong> — a IA precisa do histórico da conversa para responder com contexto;</li>
+    <li><strong>Melhorar a qualidade das respostas</strong> — analisamos padrões (nunca conteúdo individual identificado) para ajustar a IA;</li>
+    <li><strong>Prevenir abuso</strong> — bloquear spam, uso indevido e violações dos Termos.</li>
+  </ul>
+
+  <h2>4. Base legal</h2>
+  <p>Conforme a Lei Geral de Proteção de Dados (LGPD, Lei 13.709/2018), tratamos seus dados com base em:</p>
+  <ul>
+    <li><strong>Execução de contrato</strong> (art. 7º, V) — para prestar o serviço que você solicitou;</li>
+    <li><strong>Legítimo interesse</strong> (art. 7º, IX) — para melhorar o serviço e prevenir fraudes.</li>
+  </ul>
+
+  <h2>5. Com quem compartilhamos</h2>
+  <p>Trabalhamos com provedores essenciais para o funcionamento do serviço:</p>
+  <ul>
+    <li><strong>WhatsApp (Meta Platforms Inc.)</strong> — canal de mensagens;</li>
+    <li><strong>Uazapi</strong> — infraestrutura de integração com o WhatsApp;</li>
+    <li><strong>{PROVEDOR_IA}</strong> — provedor da inteligência artificial que gera as respostas.</li>
+  </ul>
+  <p><strong>Não vendemos, alugamos ou trocamos seus dados pessoais com terceiros para fins de marketing.</strong></p>
+
+  <h2>6. Por quanto tempo guardamos</h2>
+  <p>Suas mensagens ficam armazenadas por <strong>{RETENCAO_MSGS}</strong>, prazo necessário para manter contexto da conversa. Após esse período, os dados são excluídos automaticamente.</p>
+  <p>Se você solicitar exclusão total, atendemos em até 15 dias.</p>
+
+  <h2>7. Seus direitos</h2>
+  <p>Pela LGPD, você tem direito a:</p>
+  <ul>
+    <li>Confirmar se tratamos seus dados;</li>
+    <li>Acessar os dados que temos sobre você;</li>
+    <li>Corrigir dados incompletos ou desatualizados;</li>
+    <li>Solicitar exclusão dos seus dados;</li>
+    <li>Solicitar portabilidade para outro serviço;</li>
+    <li>Revogar seu consentimento a qualquer momento.</li>
+  </ul>
+
+  <h2>8. Como exercer seus direitos</h2>
+  <p>Envie um email para <a href={`mailto:${EMAIL_CONTATO}`}>{EMAIL_CONTATO}</a> com o assunto "LGPD — [seu pedido]". Responderemos em até 15 dias.</p>
+
+  <h2>9. Segurança</h2>
+  <p>Adotamos medidas técnicas e administrativas razoáveis para proteger seus dados: acesso restrito, criptografia em trânsito, monitoramento contra intrusões. Nenhum sistema é 100% seguro, mas trabalhamos continuamente para reduzir riscos.</p>
+
+  <h2>10. Menores de idade</h2>
+  <p>O Zapdafé não é destinado a menores de 13 anos. Menores entre 13 e 18 devem usar apenas com consentimento dos responsáveis.</p>
+
+  <h2>11. Alterações nesta política</h2>
+  <p>Podemos atualizar esta política. Mudanças significativas serão comunicadas pelo próprio WhatsApp ou por email. A data no topo indica a última atualização.</p>
+</Legal>

@@ -1,0 +1,43 @@
+---
+import { MousePointerClick, MessageSquare, Clock } from 'lucide-astro';
+
+const steps = [
+  {
+    Icon: MousePointerClick,
+    title: 'Clique no botão',
+    desc: 'Abrimos seu WhatsApp automaticamente.',
+  },
+  {
+    Icon: MessageSquare,
+    title: 'Mande "oi"',
+    desc: 'A Zapdafé responde na hora, sem espera.',
+  },
+  {
+    Icon: Clock,
+    title: 'Converse quando quiser',
+    desc: 'Dia, noite, madrugada. Sempre disponível.',
+  },
+];
+---
+<section id="como-funciona" class="bg-bg-alt py-20 md:py-28 border-y border-border-line">
+  <div class="max-w-6xl mx-auto px-4 md:px-6">
+    <div class="text-center max-w-2xl mx-auto mb-12 md:mb-16">
+      <h2 class="font-serif font-bold text-3xl md:text-5xl leading-tight">
+        Três passos. <span class="accent-underline">Simples assim.</span>
+      </h2>
+    </div>
+
+    <div class="grid md:grid-cols-3 gap-6 md:gap-8">
+      {steps.map((step, i) => (
+        <div class="bg-bg border border-border-line rounded-2xl p-6 md:p-8 text-center md:text-left">
+          <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-wa-green/10 text-wa-dark mb-4">
+            <step.Icon size={24} />
+          </div>
+          <div class="text-sm text-text-mute font-medium mb-2">Passo {i + 1}</div>
+          <h3 class="font-serif font-bold text-xl md:text-2xl mb-2">{step.title}</h3>
+          <p class="text-text-mute leading-relaxed">{step.desc}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

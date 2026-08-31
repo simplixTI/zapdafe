@@ -1,0 +1,60 @@
+---
+import '../styles/global.css';
+import { SITE_URL, SITE_NAME } from '../lib/constants';
+
+interface Props {
+  title: string;
+  description: string;
+  ogImage?: string;
+  canonical?: string;
+}
+
+const { title, description, ogImage = '/og-image.png', canonical } = Astro.props;
+const canonicalURL = canonical ?? new URL(Astro.url.pathname, SITE_URL).toString();
+---
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href={canonicalURL} />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE_NAME} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalURL} />
+    <meta property="og:image" content={new URL(ogImage, SITE_URL).toString()} />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={new URL(ogImage, SITE_URL).toString()} />
+
+    <meta name="theme-color" content="#F5EFE4" />
+
+    <script type="application/ld+json" set:html={JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'Organization',
+      name: SITE_NAME,
+      url: SITE_URL,
+      logo: `${SITE_URL}/logo.svg`,
+    })} />
+
+    <script
+      is:inline
+      defer
+      src="https://static.cloudflareinsights.com/beacon.min.js"
+      data-cf-beacon='{"token": "<<TODO: token do Cloudflare Web Analytics>>"}'
+    ></script>
+
+    <slot name="head" />
+  </head>
+  <body class="min-h-screen bg-bg text-text antialiased">
+    <slot />
+  </body>
+</html>
