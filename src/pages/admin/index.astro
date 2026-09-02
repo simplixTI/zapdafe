@@ -1,0 +1,418 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="Painel — Zapdafé Admin" description="Estatísticas e opt-outs">
+  <Fragment slot="head">
+    <meta name="robots" content="noindex, nofollow" />
+  </Fragment>
+  <div class="min-h-screen bg-bg">
+    <header class="sticky top-0 z-30 bg-bg/90 backdrop-blur-md border-b border-border-line">
+      <div class="max-w-7xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <img src="/logo.svg" alt="Zapdafé" class="h-8 w-auto" />
+          <span class="text-sm text-text-mute font-medium hidden sm:inline">/ Admin</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <button
+            id="refresh-btn"
+            class="text-sm text-text-mute hover:text-text px-3 py-1.5 rounded-full border border-border-line"
+          >
+            ↻ Atualizar
+          </button>
+          <button
+            id="logout-btn"
+            class="text-sm text-text-mute hover:text-text px-3 py-1.5 rounded-full"
+          >
+            Sair
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-10">
+      <div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 class="font-serif font-bold text-2xl md:text-3xl">Painel</h1>
+          <p id="last-updated" class="text-xs text-text-mute mt-1">Carregando…</p>
+        </div>
+        <a
+          href="#optouts"
+          class="text-sm text-text-mute hover:text-text underline"
+        >Ir para opt-outs ↓</a>
+      </div>
+
+      <div id="loading" class="text-text-mute text-sm">Buscando dados do Uazapi…</div>
+      <div id="error" class="hidden bg-red-50 border border-red-200 rounded-xl p-4 text-red-800 text-sm"></div>
+
+      <div id="content" class="hidden space-y-10">
+        <section aria-labelledby="kpis-h">
+          <h2 id="kpis-h" class="sr-only">Indicadores</h2>
+          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
+            <div class="kpi"><div class="kpi-label">Pessoas</div><div class="kpi-value" id="kpi-total">–</div></div>
+            <div class="kpi"><div class="kpi-label">Ativas 24h</div><div class="kpi-value" id="kpi-24h">–</div></div>
+            <div class="kpi"><div class="kpi-label">Ativas 7d</div><div class="kpi-value" id="kpi-7d">–</div></div>
+            <div class="kpi"><div class="kpi-label">Iniciaram hoje</div><div class="kpi-value" id="kpi-started-today">–</div></div>
+            <div class="kpi"><div class="kpi-label">Mensagens hoje</div><div class="kpi-value" id="kpi-msg-today">–</div></div>
+            <div class="kpi"><div class="kpi-label">Opt-outs</div><div class="kpi-value" id="kpi-optouts">–</div></div>
+          </div>
+        </section>
+
+        <section aria-labelledby="daily-h">
+          <h2 id="daily-h" class="font-serif font-bold text-lg mb-3">Últimos 30 dias</h2>
+          <div class="bg-bg-alt border border-border-line rounded-2xl p-4 md:p-6">
+            <div id="chart" class="h-56 flex items-end gap-1"></div>
+            <div class="flex justify-between text-xs text-text-mute mt-2">
+              <span id="chart-start">–</span>
+              <span id="chart-end">–</span>
+            </div>
+            <div class="flex gap-4 mt-3 text-xs text-text-mute">
+              <span class="flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-sm bg-wa-green"></span>Recebidas</span>
+              <span class="flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-sm bg-accent"></span>Enviadas</span>
+              <span class="flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-full border border-text"></span>Novas conversas</span>
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="recent-h">
+          <h2 id="recent-h" class="font-serif font-bold text-lg mb-3">Últimas atividades</h2>
+          <div class="bg-bg-alt border border-border-line rounded-2xl overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="text-left text-text-mute text-xs uppercase tracking-wider">
+                  <tr class="border-b border-border-line">
+                    <th class="px-4 py-3">Contato</th>
+                    <th class="px-4 py-3">Mensagens</th>
+                    <th class="px-4 py-3">Última</th>
+                    <th class="px-4 py-3">Iniciou</th>
+                    <th class="px-4 py-3">Ação</th>
+                  </tr>
+                </thead>
+                <tbody id="recent-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="optouts" aria-labelledby="optouts-h">
+          <h2 id="optouts-h" class="font-serif font-bold text-lg mb-3">Opt-outs</h2>
+          <div class="bg-bg-alt border border-border-line rounded-2xl p-4 md:p-6">
+            <form id="optout-add" class="flex flex-col sm:flex-row gap-2 mb-4">
+              <input
+                type="text"
+                id="optout-phone"
+                placeholder="55DD9XXXXXXXX (só dígitos)"
+                class="flex-1 px-4 py-2.5 rounded-xl border border-border-line bg-bg focus:outline-none focus:ring-2 focus:ring-accent text-sm"
+              />
+              <button type="submit" class="bg-text text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:opacity-90">
+                Adicionar opt-out
+              </button>
+            </form>
+            <div id="optout-list" class="space-y-1"></div>
+          </div>
+        </section>
+
+        <p class="text-xs text-text-mute text-center pt-4">
+          Filtro ativo: mensagens desde <strong id="cutoff-label">–</strong>.
+        </p>
+      </div>
+    </main>
+  </div>
+
+  <style>
+    .kpi {
+      background: var(--color-bg-alt);
+      border: 1px solid var(--color-border-line);
+      border-radius: 1rem;
+      padding: 1rem;
+    }
+    .kpi-label {
+      font-size: 0.75rem;
+      color: var(--color-text-mute);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .kpi-value {
+      font-family: "Fraunces", serif;
+      font-weight: 700;
+      font-size: 1.75rem;
+      line-height: 1.1;
+      margin-top: 0.25rem;
+    }
+    .bar-group {
+      flex: 1;
+      display: flex;
+      align-items: flex-end;
+      gap: 1px;
+      min-width: 4px;
+    }
+    .bar {
+      flex: 1;
+      border-radius: 2px 2px 0 0;
+    }
+    .bar-in { background: var(--color-wa-green); }
+    .bar-out { background: var(--color-accent); }
+    .started-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      border: 1.5px solid var(--color-text);
+      background: var(--color-bg-alt);
+      margin: -3px auto 0;
+    }
+  </style>
+
+  <script>
+    interface StatsResponse {
+      cutoffISO: string;
+      generatedAtISO: string;
+      people: {
+        total: number;
+        activeLast24h: number;
+        activeLast7d: number;
+        activeLast30d: number;
+        startedToday: number;
+        optedOutCount: number;
+      };
+      messages: {
+        totalSinceCutoff: number;
+        today: number;
+        last7d: number;
+        last30d: number;
+        incomingToday: number;
+        outgoingToday: number;
+      };
+      daily: Array<{ date: string; incoming: number; outgoing: number; startedConvos: number }>;
+      recent: Array<{
+        chatid: string;
+        name: string;
+        firstMsgAt: number;
+        lastMsgAt: number;
+        msgsIn: number;
+        msgsOut: number;
+        msgsTotal: number;
+        optedOut: boolean;
+      }>;
+    }
+
+    function fmtDate(ms: number): string {
+      const d = new Date(ms);
+      return d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+    }
+    function fmtDateShort(iso: string): string {
+      const d = new Date(iso);
+      return d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit' });
+    }
+
+    function phoneFromChatId(chatid: string): string {
+      const digits = chatid.split('@')[0];
+      if (digits.length >= 12) return `+${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(4)}`;
+      return digits;
+    }
+
+    async function loadStats() {
+      const loading = document.getElementById('loading')!;
+      const errorEl = document.getElementById('error')!;
+      const content = document.getElementById('content')!;
+
+      loading.classList.remove('hidden');
+      errorEl.classList.add('hidden');
+      content.classList.add('hidden');
+
+      try {
+        const res = await fetch('/api/admin/stats', { credentials: 'same-origin' });
+        if (res.status === 401) { window.location.href = '/admin-login'; return; }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as StatsResponse;
+        renderStats(data);
+      } catch (err) {
+        errorEl.textContent = 'Falha ao carregar estatísticas: ' + (err instanceof Error ? err.message : String(err));
+        errorEl.classList.remove('hidden');
+      } finally {
+        loading.classList.add('hidden');
+      }
+    }
+
+    function renderStats(data: StatsResponse) {
+      const content = document.getElementById('content')!;
+      content.classList.remove('hidden');
+
+      document.getElementById('kpi-total')!.textContent = String(data.people.total);
+      document.getElementById('kpi-24h')!.textContent = String(data.people.activeLast24h);
+      document.getElementById('kpi-7d')!.textContent = String(data.people.activeLast7d);
+      document.getElementById('kpi-started-today')!.textContent = String(data.people.startedToday);
+      document.getElementById('kpi-msg-today')!.textContent = String(data.messages.today);
+      document.getElementById('kpi-optouts')!.textContent = String(data.people.optedOutCount);
+
+      document.getElementById('last-updated')!.textContent = 'Atualizado ' + fmtDate(Date.parse(data.generatedAtISO));
+      document.getElementById('cutoff-label')!.textContent = fmtDateShort(data.cutoffISO);
+
+      renderChart(data.daily);
+      renderRecent(data.recent);
+    }
+
+    function renderChart(daily: StatsResponse['daily']) {
+      const chart = document.getElementById('chart')!;
+      chart.innerHTML = '';
+      if (daily.length === 0) {
+        chart.innerHTML = '<div class="text-sm text-text-mute self-center mx-auto">Sem dados no período.</div>';
+        return;
+      }
+
+      // Show last 30 days
+      const last30 = daily.slice(-30);
+      const maxVal = Math.max(1, ...last30.map(d => d.incoming + d.outgoing));
+
+      last30.forEach(d => {
+        const group = document.createElement('div');
+        group.className = 'bar-group';
+        group.title = `${d.date} · Recebidas ${d.incoming} · Enviadas ${d.outgoing} · Novas ${d.startedConvos}`;
+
+        const inBar = document.createElement('div');
+        inBar.className = 'bar bar-in';
+        inBar.style.height = `${(d.incoming / maxVal) * 100}%`;
+
+        const outBar = document.createElement('div');
+        outBar.className = 'bar bar-out';
+        outBar.style.height = `${(d.outgoing / maxVal) * 100}%`;
+
+        group.append(inBar, outBar);
+        chart.appendChild(group);
+
+        if (d.startedConvos > 0) {
+          const dot = document.createElement('div');
+          dot.className = 'started-dot';
+          group.appendChild(dot);
+        }
+      });
+
+      document.getElementById('chart-start')!.textContent = fmtDateShort(last30[0].date);
+      document.getElementById('chart-end')!.textContent = fmtDateShort(last30[last30.length - 1].date);
+    }
+
+    function renderRecent(recent: StatsResponse['recent']) {
+      const body = document.getElementById('recent-body')!;
+      body.innerHTML = '';
+      if (recent.length === 0) {
+        body.innerHTML = '<tr><td colspan="5" class="px-4 py-6 text-center text-text-mute">Sem atividade no período.</td></tr>';
+        return;
+      }
+      recent.forEach(c => {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-border-line last:border-0 hover:bg-bg/50';
+
+        const phoneLabel = phoneFromChatId(c.chatid);
+        const phoneDigits = c.chatid.split('@')[0];
+
+        tr.innerHTML = `
+          <td class="px-4 py-3">
+            <div class="font-medium">${escapeHtml(c.name)}</div>
+            <div class="text-xs text-text-mute">${escapeHtml(phoneLabel)}</div>
+          </td>
+          <td class="px-4 py-3">
+            <div>${c.msgsTotal}</div>
+            <div class="text-xs text-text-mute">↓${c.msgsIn} ↑${c.msgsOut}</div>
+          </td>
+          <td class="px-4 py-3 text-xs">${fmtDate(c.lastMsgAt)}</td>
+          <td class="px-4 py-3 text-xs">${fmtDate(c.firstMsgAt)}</td>
+          <td class="px-4 py-3">
+            <button
+              data-phone="${escapeAttr(phoneDigits)}"
+              data-action="${c.optedOut ? 'remove' : 'add'}"
+              class="optout-toggle text-xs px-3 py-1 rounded-full border ${c.optedOut ? 'bg-text text-white border-text' : 'border-border-line hover:bg-text/5'}"
+            >${c.optedOut ? '✓ Opt-out' : 'Marcar opt-out'}</button>
+          </td>
+        `;
+        body.appendChild(tr);
+      });
+
+      body.querySelectorAll<HTMLButtonElement>('.optout-toggle').forEach(btn => {
+        btn.addEventListener('click', () => toggleOptOut(btn));
+      });
+    }
+
+    async function toggleOptOut(btn: HTMLButtonElement) {
+      const phone = btn.dataset.phone!;
+      const action = btn.dataset.action as 'add' | 'remove';
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/optouts', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, action }),
+        });
+        if (!res.ok) throw new Error('falha');
+        await loadStats();
+        await loadOptOuts();
+      } catch (err) {
+        alert('Erro ao atualizar opt-out: ' + (err instanceof Error ? err.message : String(err)));
+        btn.disabled = false;
+      }
+    }
+
+    async function loadOptOuts() {
+      const res = await fetch('/api/admin/optouts', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const data = (await res.json()) as { optouts: string[]; count: number };
+      const container = document.getElementById('optout-list')!;
+      container.innerHTML = '';
+      if (data.optouts.length === 0) {
+        container.innerHTML = '<div class="text-sm text-text-mute">Nenhum opt-out registrado.</div>';
+        return;
+      }
+      data.optouts.forEach(phone => {
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between py-2 px-3 rounded-lg bg-bg border border-border-line';
+        row.innerHTML = `
+          <span class="text-sm font-mono">+${escapeHtml(phone)}</span>
+          <button data-phone="${escapeAttr(phone)}" class="optout-remove text-xs text-text-mute hover:text-text">Remover</button>
+        `;
+        container.appendChild(row);
+      });
+      container.querySelectorAll<HTMLButtonElement>('.optout-remove').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          await fetch('/api/admin/optouts', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: btn.dataset.phone, action: 'remove' }),
+          });
+          await loadStats();
+          await loadOptOuts();
+        });
+      });
+    }
+
+    function escapeHtml(s: string): string {
+      return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+    }
+    function escapeAttr(s: string): string { return escapeHtml(s); }
+
+    document.getElementById('refresh-btn')?.addEventListener('click', () => { loadStats(); loadOptOuts(); });
+
+    document.getElementById('logout-btn')?.addEventListener('click', async () => {
+      await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
+      window.location.href = '/admin-login';
+    });
+
+    document.getElementById('optout-add')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('optout-phone') as HTMLInputElement;
+      const phone = input.value.replace(/\D/g, '');
+      if (!phone) return;
+      await fetch('/api/admin/optouts', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, action: 'add' }),
+      });
+      input.value = '';
+      await loadStats();
+      await loadOptOuts();
+    });
+
+    loadStats();
+    loadOptOuts();
+  </script>
+</Base>

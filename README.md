@@ -68,3 +68,4 @@ Não pode retornar nada.
 
 - `docs/superpowers/specs/2026-08-31-landing-page-design.md` — spec completa (arquitetura, copy final, sistema visual).
 - `docs/superpowers/plans/2026-08-31-landing-page.md` — plano de implementação task-a-task.
+- `docs/ADMIN.md` — painel `/admin` (métricas + opt-outs). Passo a passo pra bindar KV e env vars no Cloudflare Pages.

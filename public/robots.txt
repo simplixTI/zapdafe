@@ -1,5 +1,8 @@
 User-agent: *
 Allow: /
 Disallow: /mensagem
+Disallow: /admin
+Disallow: /admin-login
+Disallow: /api
 
 Sitemap: https://zapdafe.com.br/sitemap-index.xml

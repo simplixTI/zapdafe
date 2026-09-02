@@ -1,0 +1,73 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base title="Entrar — Zapdafé Admin" description="Acesso restrito">
+  <Fragment slot="head">
+    <meta name="robots" content="noindex, nofollow" />
+  </Fragment>
+  <main class="min-h-screen flex items-center justify-center px-4">
+    <form
+      id="login-form"
+      class="w-full max-w-sm bg-bg-alt border border-border-line rounded-2xl p-8 shadow-sm"
+    >
+      <h1 class="font-serif font-bold text-2xl mb-2 text-center">Zapdafé Admin</h1>
+      <p class="text-sm text-text-mute text-center mb-6">Acesso restrito.</p>
+
+      <label class="block text-sm font-medium mb-2" for="password">Senha</label>
+      <input
+        id="password"
+        name="password"
+        type="password"
+        autocomplete="current-password"
+        required
+        class="w-full px-4 py-3 rounded-xl border border-border-line bg-bg focus:outline-none focus:ring-2 focus:ring-accent"
+      />
+
+      <p id="error" class="hidden mt-3 text-sm text-red-600 text-center"></p>
+
+      <button
+        type="submit"
+        class="mt-6 w-full bg-wa-green text-white font-medium py-3 rounded-full hover:bg-wa-dark transition-colors"
+      >
+        Entrar
+      </button>
+    </form>
+  </main>
+
+  <script>
+    const form = document.getElementById('login-form') as HTMLFormElement | null;
+    const errorEl = document.getElementById('error') as HTMLParagraphElement | null;
+    const pwInput = document.getElementById('password') as HTMLInputElement | null;
+
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!pwInput || !errorEl) return;
+      errorEl.classList.add('hidden');
+      const btn = form.querySelector('button[type=submit]') as HTMLButtonElement;
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pwInput.value }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          errorEl.textContent =
+            body?.error === 'invalid_credentials' ? 'Senha incorreta.' : 'Erro ao entrar. Tenta de novo.';
+          errorEl.classList.remove('hidden');
+          btn.disabled = false;
+          return;
+        }
+        const url = new URL(window.location.href);
+        const next = url.searchParams.get('next') || '/admin';
+        window.location.href = next;
+      } catch {
+        errorEl.textContent = 'Sem conexão. Tenta de novo.';
+        errorEl.classList.remove('hidden');
+        btn.disabled = false;
+      }
+    });
+  </script>
+</Base>
