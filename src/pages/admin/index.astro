@@ -4,87 +4,150 @@ import Base from '../../layouts/Base.astro';
 <Base title="Painel — Zapdafé Admin" description="Estatísticas e opt-outs">
   <Fragment slot="head">
     <meta name="robots" content="noindex, nofollow" />
+    <style>
+      /* Dark warm override for admin page only */
+      body {
+        background: #141210 !important;
+        color: #F5EFE4 !important;
+      }
+    </style>
   </Fragment>
-  <div class="min-h-screen bg-bg">
-    <header class="sticky top-0 z-30 bg-bg/90 backdrop-blur-md border-b border-border-line">
-      <div class="max-w-7xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <img src="/logo.svg" alt="Zapdafé" class="h-8 w-auto" />
-          <span class="text-sm text-text-mute font-medium hidden sm:inline">/ Admin</span>
+
+  <div class="admin-shell">
+    <!-- Background -->
+    <div class="admin-bg" aria-hidden="true">
+      <div class="admin-bg-orb orb-1"></div>
+      <div class="admin-bg-orb orb-2"></div>
+    </div>
+
+    <!-- Header -->
+    <header class="admin-header">
+      <div class="admin-header-inner">
+        <div class="admin-brand">
+          <img src="/logo.svg" alt="Zapdafé" class="admin-logo" />
+          <span class="admin-brand-sep">/</span>
+          <span class="admin-brand-label">Admin</span>
         </div>
-        <div class="flex items-center gap-3">
-          <button
-            id="refresh-btn"
-            class="text-sm text-text-mute hover:text-text px-3 py-1.5 rounded-full border border-border-line"
-          >
-            ↻ Atualizar
+        <div class="admin-header-actions">
+          <button id="refresh-btn" class="admin-btn admin-btn-ghost" aria-label="Atualizar dados">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            Atualizar
           </button>
-          <button
-            id="logout-btn"
-            class="text-sm text-text-mute hover:text-text px-3 py-1.5 rounded-full"
-          >
+          <button id="logout-btn" class="admin-btn admin-btn-ghost" aria-label="Sair do painel">
             Sair
           </button>
         </div>
       </div>
     </header>
 
-    <main class="max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-10">
-      <div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+    <main class="admin-main">
+      <!-- Page title -->
+      <div class="admin-page-title">
         <div>
-          <h1 class="font-serif font-bold text-2xl md:text-3xl">Painel</h1>
-          <p id="last-updated" class="text-xs text-text-mute mt-1">Carregando…</p>
+          <h1 class="admin-h1">Painel</h1>
+          <p id="last-updated" class="admin-subtitle">Carregando…</p>
         </div>
-        <a
-          href="#optouts"
-          class="text-sm text-text-mute hover:text-text underline"
-        >Ir para opt-outs ↓</a>
+        <a href="#optouts" class="admin-link-subtle">
+          Ir para opt-outs
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </a>
       </div>
 
-      <div id="loading" class="text-text-mute text-sm">Buscando dados do Uazapi…</div>
-      <div id="error" class="hidden bg-red-50 border border-red-200 rounded-xl p-4 text-red-800 text-sm"></div>
+      <!-- States -->
+      <div id="loading" class="admin-loading" role="status" aria-live="polite">
+        <div class="admin-spinner" aria-hidden="true"></div>
+        Buscando dados do Uazapi…
+      </div>
+      <div id="error" class="admin-error hidden" role="alert"></div>
 
-      <div id="content" class="hidden space-y-10">
+      <!-- Content -->
+      <div id="content" class="hidden admin-content">
+
+        <!-- KPIs -->
         <section aria-labelledby="kpis-h">
           <h2 id="kpis-h" class="sr-only">Indicadores</h2>
-          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
-            <div class="kpi"><div class="kpi-label">Pessoas</div><div class="kpi-value" id="kpi-total">–</div></div>
-            <div class="kpi"><div class="kpi-label">Ativas 24h</div><div class="kpi-value" id="kpi-24h">–</div></div>
-            <div class="kpi"><div class="kpi-label">Ativas 7d</div><div class="kpi-value" id="kpi-7d">–</div></div>
-            <div class="kpi"><div class="kpi-label">Iniciaram hoje</div><div class="kpi-value" id="kpi-started-today">–</div></div>
-            <div class="kpi"><div class="kpi-label">Mensagens hoje</div><div class="kpi-value" id="kpi-msg-today">–</div></div>
-            <div class="kpi"><div class="kpi-label">Opt-outs</div><div class="kpi-value" id="kpi-optouts">–</div></div>
+          <div class="kpi-grid">
+            <div class="kpi-card kpi-card--highlight">
+              <div class="kpi-icon" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              </div>
+              <div class="kpi-label">Pessoas</div>
+              <div class="kpi-value" id="kpi-total">–</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              </div>
+              <div class="kpi-label">Ativas 24h</div>
+              <div class="kpi-value" id="kpi-24h">–</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              </div>
+              <div class="kpi-label">Ativas 7d</div>
+              <div class="kpi-value" id="kpi-7d">–</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon kpi-icon--green" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+              </div>
+              <div class="kpi-label">Iniciaram hoje</div>
+              <div class="kpi-value kpi-value--green" id="kpi-started-today">–</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon kpi-icon--green" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              </div>
+              <div class="kpi-label">Mensagens hoje</div>
+              <div class="kpi-value kpi-value--green" id="kpi-msg-today">–</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon kpi-icon--muted" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              </div>
+              <div class="kpi-label">Opt-outs</div>
+              <div class="kpi-value" id="kpi-optouts">–</div>
+            </div>
           </div>
         </section>
 
+        <!-- Chart -->
         <section aria-labelledby="daily-h">
-          <h2 id="daily-h" class="font-serif font-bold text-lg mb-3">Últimos 30 dias</h2>
-          <div class="bg-bg-alt border border-border-line rounded-2xl p-4 md:p-6">
-            <div id="chart" class="h-56 flex items-end gap-1"></div>
-            <div class="flex justify-between text-xs text-text-mute mt-2">
-              <span id="chart-start">–</span>
-              <span id="chart-end">–</span>
-            </div>
-            <div class="flex gap-4 mt-3 text-xs text-text-mute">
-              <span class="flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-sm bg-wa-green"></span>Recebidas</span>
-              <span class="flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-sm bg-accent"></span>Enviadas</span>
-              <span class="flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-full border border-text"></span>Novas conversas</span>
+          <div class="admin-section-header">
+            <h2 id="daily-h" class="admin-h2">Últimos 30 dias</h2>
+          </div>
+          <div class="chart-card">
+            <div id="chart" class="chart-bars" role="img" aria-label="Gráfico de mensagens dos últimos 30 dias"></div>
+            <div class="chart-footer">
+              <div class="chart-dates">
+                <span id="chart-start">–</span>
+                <span id="chart-end">–</span>
+              </div>
+              <div class="chart-legend">
+                <span class="legend-item"><span class="legend-dot legend-dot--green"></span>Recebidas</span>
+                <span class="legend-item"><span class="legend-dot legend-dot--gold"></span>Enviadas</span>
+                <span class="legend-item"><span class="legend-dot legend-dot--ring"></span>Novas conversas</span>
+              </div>
             </div>
           </div>
         </section>
 
+        <!-- Recent -->
         <section aria-labelledby="recent-h">
-          <h2 id="recent-h" class="font-serif font-bold text-lg mb-3">Últimas atividades</h2>
-          <div class="bg-bg-alt border border-border-line rounded-2xl overflow-hidden">
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm">
-                <thead class="text-left text-text-mute text-xs uppercase tracking-wider">
-                  <tr class="border-b border-border-line">
-                    <th class="px-4 py-3">Contato</th>
-                    <th class="px-4 py-3">Mensagens</th>
-                    <th class="px-4 py-3">Última</th>
-                    <th class="px-4 py-3">Iniciou</th>
-                    <th class="px-4 py-3">Ação</th>
+          <div class="admin-section-header">
+            <h2 id="recent-h" class="admin-h2">Últimas atividades</h2>
+          </div>
+          <div class="table-card">
+            <div class="table-wrap">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>Contato</th>
+                    <th>Mensagens</th>
+                    <th>Última</th>
+                    <th>Iniciou</th>
+                    <th>Ação</th>
                   </tr>
                 </thead>
                 <tbody id="recent-body"></tbody>
@@ -93,25 +156,30 @@ import Base from '../../layouts/Base.astro';
           </div>
         </section>
 
+        <!-- Opt-outs -->
         <section id="optouts" aria-labelledby="optouts-h">
-          <h2 id="optouts-h" class="font-serif font-bold text-lg mb-3">Opt-outs</h2>
-          <div class="bg-bg-alt border border-border-line rounded-2xl p-4 md:p-6">
-            <form id="optout-add" class="flex flex-col sm:flex-row gap-2 mb-4">
+          <div class="admin-section-header">
+            <h2 id="optouts-h" class="admin-h2">Opt-outs</h2>
+          </div>
+          <div class="glass-card">
+            <form id="optout-add" class="optout-form">
               <input
                 type="text"
                 id="optout-phone"
                 placeholder="55DD9XXXXXXXX (só dígitos)"
-                class="flex-1 px-4 py-2.5 rounded-xl border border-border-line bg-bg focus:outline-none focus:ring-2 focus:ring-accent text-sm"
+                class="admin-input"
+                autocomplete="off"
+                inputmode="numeric"
               />
-              <button type="submit" class="bg-text text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:opacity-90">
+              <button type="submit" class="admin-btn admin-btn-primary">
                 Adicionar opt-out
               </button>
             </form>
-            <div id="optout-list" class="space-y-1"></div>
+            <div id="optout-list" class="optout-list"></div>
           </div>
         </section>
 
-        <p class="text-xs text-text-mute text-center pt-4">
+        <p class="admin-footer-note">
           Filtro ativo: mensagens desde <strong id="cutoff-label">–</strong>.
         </p>
       </div>
@@ -119,45 +187,484 @@ import Base from '../../layouts/Base.astro';
   </div>
 
   <style>
-    .kpi {
-      background: var(--color-bg-alt);
-      border: 1px solid var(--color-border-line);
-      border-radius: 1rem;
-      padding: 1rem;
+    /* ── Reset / base ───────────────────────────────── */
+    .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0 }
+
+    /* ── Shell & background ─────────────────────────── */
+    .admin-shell {
+      position: relative;
+      min-height: 100vh;
+      background: #141210;
+      overflow-x: hidden;
     }
-    .kpi-label {
+    .admin-bg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .admin-bg-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.18;
+    }
+    .orb-1 {
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, #B8860B 0%, transparent 70%);
+      top: -200px; right: -100px;
+    }
+    .orb-2 {
+      width: 500px; height: 500px;
+      background: radial-gradient(circle, #25D366 0%, transparent 70%);
+      bottom: -100px; left: -150px;
+    }
+
+    /* ── Header ─────────────────────────────────────── */
+    .admin-header {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background: rgba(20, 18, 16, 0.75);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(184, 134, 11, 0.2);
+    }
+    .admin-header-inner {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .admin-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+    }
+    .admin-logo {
+      height: 32px;
+      width: auto;
+      filter: brightness(0) invert(1);
+      opacity: 0.9;
+    }
+    .admin-brand-sep {
+      color: rgba(245, 239, 228, 0.25);
+      font-size: 1rem;
+    }
+    .admin-brand-label {
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: rgba(245, 239, 228, 0.45);
+      letter-spacing: 0.04em;
+    }
+    .admin-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* ── Buttons ─────────────────────────────────────── */
+    .admin-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      padding: 0.4375rem 0.875rem;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      border: none;
+      text-decoration: none;
+    }
+    .admin-btn:focus-visible {
+      outline: 2px solid #B8860B;
+      outline-offset: 2px;
+    }
+    .admin-btn-ghost {
+      background: rgba(245, 239, 228, 0.06);
+      color: rgba(245, 239, 228, 0.6);
+      border: 1px solid rgba(245, 239, 228, 0.1);
+    }
+    .admin-btn-ghost:hover {
+      background: rgba(245, 239, 228, 0.1);
+      color: #F5EFE4;
+      border-color: rgba(245, 239, 228, 0.2);
+    }
+    .admin-btn-primary {
+      background: #B8860B;
+      color: #141210;
+      font-weight: 600;
+    }
+    .admin-btn-primary:hover {
+      background: #D4A017;
+    }
+    .admin-btn-sm {
       font-size: 0.75rem;
-      color: var(--color-text-mute);
+      padding: 0.3125rem 0.75rem;
+    }
+    .admin-btn-danger {
+      background: rgba(239, 68, 68, 0.1);
+      color: #FCA5A5;
+      border: 1px solid rgba(239, 68, 68, 0.25);
+    }
+    .admin-btn-danger:hover {
+      background: rgba(239, 68, 68, 0.2);
+    }
+    .admin-btn-optout {
+      background: rgba(184, 134, 11, 0.12);
+      color: #D4A017;
+      border: 1px solid rgba(184, 134, 11, 0.3);
+    }
+    .admin-btn-optout:hover {
+      background: rgba(184, 134, 11, 0.22);
+    }
+    .admin-btn-optout-active {
+      background: rgba(184, 134, 11, 0.25);
+      color: #F5EFE4;
+      border: 1px solid rgba(184, 134, 11, 0.5);
+    }
+
+    /* ── Main layout ─────────────────────────────────── */
+    .admin-main {
+      position: relative;
+      z-index: 1;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem 4rem;
+    }
+
+    /* ── Page title ──────────────────────────────────── */
+    .admin-page-title {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .admin-h1 {
+      font-family: "Fraunces", serif;
+      font-weight: 700;
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      color: #F5EFE4;
+      line-height: 1.1;
+    }
+    .admin-subtitle {
+      font-size: 0.75rem;
+      color: rgba(245, 239, 228, 0.4);
+      margin-top: 0.25rem;
+    }
+    .admin-link-subtle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.8125rem;
+      color: rgba(245, 239, 228, 0.4);
+      text-decoration: none;
+      transition: color 0.15s;
+      white-space: nowrap;
+      margin-top: 0.5rem;
+    }
+    .admin-link-subtle:hover { color: #B8860B; }
+
+    /* ── Loading / error ─────────────────────────────── */
+    .admin-loading {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: rgba(245, 239, 228, 0.45);
+      font-size: 0.875rem;
+      padding: 2rem 0;
+    }
+    .admin-spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(184, 134, 11, 0.2);
+      border-top-color: #B8860B;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .admin-error {
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      border-radius: 1rem;
+      padding: 1rem 1.25rem;
+      color: #FCA5A5;
+      font-size: 0.875rem;
+    }
+
+    /* ── Content spacing ─────────────────────────────── */
+    .admin-content { display: flex; flex-direction: column; gap: 2.5rem; }
+
+    /* ── Section headers ─────────────────────────────── */
+    .admin-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.875rem;
+    }
+    .admin-h2 {
+      font-family: "Fraunces", serif;
+      font-weight: 700;
+      font-size: 1.125rem;
+      color: #F5EFE4;
+    }
+
+    /* ── Glass card base ─────────────────────────────── */
+    .glass-card {
+      background: rgba(245, 239, 228, 0.04);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(184, 134, 11, 0.2);
+      border-radius: 1.25rem;
+      padding: 1.5rem;
+    }
+
+    /* ── KPI grid ─────────────────────────────────────── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.75rem;
+    }
+    @media (min-width: 640px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (min-width: 1024px) { .kpi-grid { grid-template-columns: repeat(6, 1fr); } }
+
+    .kpi-card {
+      background: rgba(245, 239, 228, 0.04);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(184, 134, 11, 0.15);
+      border-radius: 1rem;
+      padding: 1rem 1rem 1.125rem;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .kpi-card:hover {
+      border-color: rgba(184, 134, 11, 0.35);
+      background: rgba(245, 239, 228, 0.07);
+    }
+    .kpi-card--highlight {
+      border-color: rgba(184, 134, 11, 0.4);
+      background: rgba(184, 134, 11, 0.07);
+    }
+    .kpi-card--highlight:hover {
+      background: rgba(184, 134, 11, 0.12);
+    }
+
+    .kpi-icon {
+      display: inline-flex;
+      padding: 0.25rem;
+      color: rgba(184, 134, 11, 0.7);
+      margin-bottom: 0.625rem;
+    }
+    .kpi-icon--green { color: rgba(37, 211, 102, 0.7); }
+    .kpi-icon--muted { color: rgba(245, 239, 228, 0.25); }
+
+    .kpi-label {
+      font-size: 0.6875rem;
+      color: rgba(245, 239, 228, 0.4);
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.07em;
+      font-weight: 500;
     }
     .kpi-value {
       font-family: "Fraunces", serif;
       font-weight: 700;
-      font-size: 1.75rem;
-      line-height: 1.1;
-      margin-top: 0.25rem;
+      font-size: 2rem;
+      line-height: 1.05;
+      color: #F5EFE4;
+      margin-top: 0.125rem;
     }
+    .kpi-value--green { color: #25D366; }
+
+    /* ── Chart ───────────────────────────────────────── */
+    .chart-card {
+      background: rgba(245, 239, 228, 0.04);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(184, 134, 11, 0.15);
+      border-radius: 1.25rem;
+      padding: 1.5rem;
+    }
+    .chart-bars {
+      height: 180px;
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+    }
+    .chart-footer {
+      margin-top: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    @media (min-width: 640px) {
+      .chart-footer { flex-direction: row; justify-content: space-between; align-items: center; }
+    }
+    .chart-dates {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.6875rem;
+      color: rgba(245, 239, 228, 0.35);
+    }
+    .chart-legend {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+      font-size: 0.6875rem;
+      color: rgba(245, 239, 228, 0.45);
+    }
+    .legend-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .legend-dot--green { background: #25D366; }
+    .legend-dot--gold  { background: #B8860B; }
+    .legend-dot--ring  { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid rgba(245,239,228,0.5); background: transparent; }
+
+    /* chart bar internals (set by JS) */
     .bar-group {
       flex: 1;
       display: flex;
       align-items: flex-end;
       gap: 1px;
       min-width: 4px;
+      position: relative;
+      cursor: default;
     }
+    .bar-group:hover .bar { opacity: 0.8; }
     .bar {
       flex: 1;
+      min-height: 2px;
       border-radius: 2px 2px 0 0;
+      transition: opacity 0.15s;
     }
-    .bar-in { background: var(--color-wa-green); }
-    .bar-out { background: var(--color-accent); }
+    .bar-in  { background: #25D366; }
+    .bar-out { background: #B8860B; }
     .started-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      border: 1.5px solid var(--color-text);
-      background: var(--color-bg-alt);
-      margin: -3px auto 0;
+      position: absolute;
+      top: -5px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(245, 239, 228, 0.6);
+      background: rgba(20, 18, 16, 0.8);
+    }
+
+    /* ── Table ───────────────────────────────────────── */
+    .table-card {
+      background: rgba(245, 239, 228, 0.04);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(184, 134, 11, 0.15);
+      border-radius: 1.25rem;
+      overflow: hidden;
+    }
+    .table-wrap { overflow-x: auto; }
+    .admin-table {
+      width: 100%;
+      font-size: 0.8125rem;
+      border-collapse: collapse;
+    }
+    .admin-table thead tr {
+      border-bottom: 1px solid rgba(184, 134, 11, 0.15);
+    }
+    .admin-table th {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: rgba(245, 239, 228, 0.35);
+    }
+    .admin-table tbody tr {
+      border-bottom: 1px solid rgba(245, 239, 228, 0.05);
+      transition: background 0.15s;
+    }
+    .admin-table tbody tr:last-child { border-bottom: none; }
+    .admin-table tbody tr:hover { background: rgba(245, 239, 228, 0.04); }
+    .admin-table td {
+      padding: 0.875rem 1rem;
+      color: #F5EFE4;
+      vertical-align: middle;
+    }
+    .td-name { font-weight: 500; font-size: 0.875rem; }
+    .td-phone { font-size: 0.6875rem; color: rgba(245,239,228,0.4); margin-top: 0.125rem; }
+    .td-count { font-size: 0.875rem; }
+    .td-msgs-detail { font-size: 0.6875rem; color: rgba(245,239,228,0.4); margin-top: 0.125rem; }
+    .td-date { font-size: 0.75rem; color: rgba(245,239,228,0.55); }
+
+    /* ── Opt-outs form ───────────────────────────────── */
+    .optout-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.625rem;
+      margin-bottom: 1.25rem;
+    }
+    @media (min-width: 540px) { .optout-form { flex-direction: row; } }
+
+    .admin-input {
+      flex: 1;
+      background: rgba(245, 239, 228, 0.05);
+      border: 1px solid rgba(184, 134, 11, 0.2);
+      border-radius: 0.75rem;
+      padding: 0.6875rem 1rem;
+      font-size: 0.875rem;
+      color: #F5EFE4;
+      outline: none;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .admin-input::placeholder { color: rgba(245, 239, 228, 0.25); }
+    .admin-input:focus {
+      border-color: rgba(184, 134, 11, 0.6);
+      background: rgba(245, 239, 228, 0.08);
+    }
+
+    .optout-list { display: flex; flex-direction: column; gap: 0.375rem; }
+    .optout-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 0.875rem;
+      border-radius: 0.625rem;
+      background: rgba(245, 239, 228, 0.04);
+      border: 1px solid rgba(245, 239, 228, 0.08);
+      font-family: monospace;
+      font-size: 0.8125rem;
+      color: rgba(245, 239, 228, 0.75);
+    }
+
+    /* ── Footer note ─────────────────────────────────── */
+    .admin-footer-note {
+      font-size: 0.75rem;
+      color: rgba(245, 239, 228, 0.3);
+      text-align: center;
+      padding-top: 1rem;
+    }
+
+    /* ── Responsive ──────────────────────────────────── */
+    @media (max-width: 480px) {
+      .admin-main { padding: 1.5rem 1rem 3rem; }
+      .admin-page-title { flex-direction: column; gap: 0.5rem; }
+      .kpi-value { font-size: 1.625rem; }
+    }
+
+    /* ── Reduced motion ──────────────────────────────── */
+    @media (prefers-reduced-motion: reduce) {
+      .admin-spinner { animation: none; border-top-color: #B8860B; }
+      * { transition-duration: 0ms !important; }
     }
   </style>
 
@@ -195,35 +702,32 @@ import Base from '../../layouts/Base.astro';
     }
 
     function fmtDate(ms: number): string {
-      const d = new Date(ms);
-      return d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+      return new Date(ms).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
     }
     function fmtDateShort(iso: string): string {
-      const d = new Date(iso);
-      return d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit' });
+      return new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit' });
     }
-
     function phoneFromChatId(chatid: string): string {
-      const digits = chatid.split('@')[0];
-      if (digits.length >= 12) return `+${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(4)}`;
-      return digits;
+      const d = chatid.split('@')[0];
+      if (d.length >= 12) return `+${d.slice(0,2)} ${d.slice(2,4)} ${d.slice(4)}`;
+      return d;
+    }
+    function escapeHtml(s: string): string {
+      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
     }
 
     async function loadStats() {
       const loading = document.getElementById('loading')!;
       const errorEl = document.getElementById('error')!;
       const content = document.getElementById('content')!;
-
       loading.classList.remove('hidden');
       errorEl.classList.add('hidden');
       content.classList.add('hidden');
-
       try {
         const res = await fetch('/api/admin/stats', { credentials: 'same-origin' });
         if (res.status === 401) { window.location.href = '/admin-login'; return; }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as StatsResponse;
-        renderStats(data);
+        renderStats(await res.json() as StatsResponse);
       } catch (err) {
         errorEl.textContent = 'Falha ao carregar estatísticas: ' + (err instanceof Error ? err.message : String(err));
         errorEl.classList.remove('hidden');
@@ -233,19 +737,15 @@ import Base from '../../layouts/Base.astro';
     }
 
     function renderStats(data: StatsResponse) {
-      const content = document.getElementById('content')!;
-      content.classList.remove('hidden');
-
+      document.getElementById('content')!.classList.remove('hidden');
       document.getElementById('kpi-total')!.textContent = String(data.people.total);
       document.getElementById('kpi-24h')!.textContent = String(data.people.activeLast24h);
       document.getElementById('kpi-7d')!.textContent = String(data.people.activeLast7d);
       document.getElementById('kpi-started-today')!.textContent = String(data.people.startedToday);
       document.getElementById('kpi-msg-today')!.textContent = String(data.messages.today);
       document.getElementById('kpi-optouts')!.textContent = String(data.people.optedOutCount);
-
       document.getElementById('last-updated')!.textContent = 'Atualizado ' + fmtDate(Date.parse(data.generatedAtISO));
       document.getElementById('cutoff-label')!.textContent = fmtDateShort(data.cutoffISO);
-
       renderChart(data.daily);
       renderRecent(data.recent);
     }
@@ -254,37 +754,34 @@ import Base from '../../layouts/Base.astro';
       const chart = document.getElementById('chart')!;
       chart.innerHTML = '';
       if (daily.length === 0) {
-        chart.innerHTML = '<div class="text-sm text-text-mute self-center mx-auto">Sem dados no período.</div>';
+        chart.innerHTML = '<div style="color:rgba(245,239,228,.35);font-size:.8125rem;margin:auto;">Sem dados no período.</div>';
         return;
       }
-
-      // Show last 30 days
       const last30 = daily.slice(-30);
       const maxVal = Math.max(1, ...last30.map(d => d.incoming + d.outgoing));
-
       last30.forEach(d => {
         const group = document.createElement('div');
         group.className = 'bar-group';
-        group.title = `${d.date} · Recebidas ${d.incoming} · Enviadas ${d.outgoing} · Novas ${d.startedConvos}`;
+        group.setAttribute('title', `${d.date} · ↓${d.incoming} recebidas · ↑${d.outgoing} enviadas · ${d.startedConvos} novas`);
+        group.setAttribute('aria-label', `${d.date}: ${d.incoming} recebidas, ${d.outgoing} enviadas`);
 
         const inBar = document.createElement('div');
         inBar.className = 'bar bar-in';
-        inBar.style.height = `${(d.incoming / maxVal) * 100}%`;
+        inBar.style.height = `${Math.max(2, (d.incoming / maxVal) * 100)}%`;
 
         const outBar = document.createElement('div');
         outBar.className = 'bar bar-out';
-        outBar.style.height = `${(d.outgoing / maxVal) * 100}%`;
+        outBar.style.height = `${Math.max(2, (d.outgoing / maxVal) * 100)}%`;
 
         group.append(inBar, outBar);
-        chart.appendChild(group);
 
         if (d.startedConvos > 0) {
           const dot = document.createElement('div');
           dot.className = 'started-dot';
           group.appendChild(dot);
         }
+        chart.appendChild(group);
       });
-
       document.getElementById('chart-start')!.textContent = fmtDateShort(last30[0].date);
       document.getElementById('chart-end')!.textContent = fmtDateShort(last30[last30.length - 1].date);
     }
@@ -293,38 +790,32 @@ import Base from '../../layouts/Base.astro';
       const body = document.getElementById('recent-body')!;
       body.innerHTML = '';
       if (recent.length === 0) {
-        body.innerHTML = '<tr><td colspan="5" class="px-4 py-6 text-center text-text-mute">Sem atividade no período.</td></tr>';
+        body.innerHTML = '<tr><td colspan="5" style="padding:2rem 1rem;text-align:center;color:rgba(245,239,228,.35)">Sem atividade no período.</td></tr>';
         return;
       }
       recent.forEach(c => {
         const tr = document.createElement('tr');
-        tr.className = 'border-b border-border-line last:border-0 hover:bg-bg/50';
-
-        const phoneLabel = phoneFromChatId(c.chatid);
-        const phoneDigits = c.chatid.split('@')[0];
-
+        const phone = c.chatid.split('@')[0];
         tr.innerHTML = `
-          <td class="px-4 py-3">
-            <div class="font-medium">${escapeHtml(c.name)}</div>
-            <div class="text-xs text-text-mute">${escapeHtml(phoneLabel)}</div>
+          <td>
+            <div class="td-name">${escapeHtml(c.name)}</div>
+            <div class="td-phone">${escapeHtml(phoneFromChatId(c.chatid))}</div>
           </td>
-          <td class="px-4 py-3">
-            <div>${c.msgsTotal}</div>
-            <div class="text-xs text-text-mute">↓${c.msgsIn} ↑${c.msgsOut}</div>
+          <td>
+            <div class="td-count">${c.msgsTotal}</div>
+            <div class="td-msgs-detail">↓${c.msgsIn} ↑${c.msgsOut}</div>
           </td>
-          <td class="px-4 py-3 text-xs">${fmtDate(c.lastMsgAt)}</td>
-          <td class="px-4 py-3 text-xs">${fmtDate(c.firstMsgAt)}</td>
-          <td class="px-4 py-3">
+          <td><span class="td-date">${fmtDate(c.lastMsgAt)}</span></td>
+          <td><span class="td-date">${fmtDate(c.firstMsgAt)}</span></td>
+          <td>
             <button
-              data-phone="${escapeAttr(phoneDigits)}"
+              data-phone="${escapeHtml(phone)}"
               data-action="${c.optedOut ? 'remove' : 'add'}"
-              class="optout-toggle text-xs px-3 py-1 rounded-full border ${c.optedOut ? 'bg-text text-white border-text' : 'border-border-line hover:bg-text/5'}"
+              class="optout-toggle admin-btn admin-btn-sm ${c.optedOut ? 'admin-btn-optout-active' : 'admin-btn-optout'}"
             >${c.optedOut ? '✓ Opt-out' : 'Marcar opt-out'}</button>
-          </td>
-        `;
+          </td>`;
         body.appendChild(tr);
       });
-
       body.querySelectorAll<HTMLButtonElement>('.optout-toggle').forEach(btn => {
         btn.addEventListener('click', () => toggleOptOut(btn));
       });
@@ -342,8 +833,7 @@ import Base from '../../layouts/Base.astro';
           body: JSON.stringify({ phone, action }),
         });
         if (!res.ok) throw new Error('falha');
-        await loadStats();
-        await loadOptOuts();
+        await Promise.all([loadStats(), loadOptOuts()]);
       } catch (err) {
         alert('Erro ao atualizar opt-out: ' + (err instanceof Error ? err.message : String(err)));
         btn.disabled = false;
@@ -353,63 +843,58 @@ import Base from '../../layouts/Base.astro';
     async function loadOptOuts() {
       const res = await fetch('/api/admin/optouts', { credentials: 'same-origin' });
       if (!res.ok) return;
-      const data = (await res.json()) as { optouts: string[]; count: number };
+      const data = await res.json() as { optouts: string[]; count: number };
       const container = document.getElementById('optout-list')!;
       container.innerHTML = '';
       if (data.optouts.length === 0) {
-        container.innerHTML = '<div class="text-sm text-text-mute">Nenhum opt-out registrado.</div>';
+        container.innerHTML = '<div style="font-size:.8125rem;color:rgba(245,239,228,.35)">Nenhum opt-out registrado.</div>';
         return;
       }
       data.optouts.forEach(phone => {
         const row = document.createElement('div');
-        row.className = 'flex items-center justify-between py-2 px-3 rounded-lg bg-bg border border-border-line';
+        row.className = 'optout-row';
         row.innerHTML = `
-          <span class="text-sm font-mono">+${escapeHtml(phone)}</span>
-          <button data-phone="${escapeAttr(phone)}" class="optout-remove text-xs text-text-mute hover:text-text">Remover</button>
-        `;
+          <span>+${escapeHtml(phone)}</span>
+          <button data-phone="${escapeHtml(phone)}" class="optout-remove admin-btn admin-btn-sm admin-btn-danger">Remover</button>`;
         container.appendChild(row);
       });
       container.querySelectorAll<HTMLButtonElement>('.optout-remove').forEach(btn => {
         btn.addEventListener('click', async () => {
           btn.disabled = true;
           await fetch('/api/admin/optouts', {
-            method: 'POST',
-            credentials: 'same-origin',
+            method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ phone: btn.dataset.phone, action: 'remove' }),
           });
-          await loadStats();
-          await loadOptOuts();
+          await Promise.all([loadStats(), loadOptOuts()]);
         });
       });
     }
 
-    function escapeHtml(s: string): string {
-      return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-    }
-    function escapeAttr(s: string): string { return escapeHtml(s); }
-
-    document.getElementById('refresh-btn')?.addEventListener('click', () => { loadStats(); loadOptOuts(); });
-
+    document.getElementById('refresh-btn')?.addEventListener('click', () => {
+      const btn = document.getElementById('refresh-btn') as HTMLButtonElement;
+      btn.style.opacity = '0.5';
+      Promise.all([loadStats(), loadOptOuts()]).finally(() => { btn.style.opacity = ''; });
+    });
     document.getElementById('logout-btn')?.addEventListener('click', async () => {
       await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
       window.location.href = '/admin-login';
     });
-
     document.getElementById('optout-add')?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const input = document.getElementById('optout-phone') as HTMLInputElement;
       const phone = input.value.replace(/\D/g, '');
       if (!phone) return;
+      const btn = (e.target as HTMLFormElement).querySelector('button')!;
+      btn.disabled = true;
       await fetch('/api/admin/optouts', {
-        method: 'POST',
-        credentials: 'same-origin',
+        method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone, action: 'add' }),
       });
       input.value = '';
-      await loadStats();
-      await loadOptOuts();
+      btn.disabled = false;
+      await Promise.all([loadStats(), loadOptOuts()]);
     });
 
     loadStats();

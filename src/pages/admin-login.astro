@@ -4,47 +4,176 @@ import Base from '../layouts/Base.astro';
 <Base title="Entrar — Zapdafé Admin" description="Acesso restrito">
   <Fragment slot="head">
     <meta name="robots" content="noindex, nofollow" />
+    <style>
+      body { background: #141210 !important; }
+    </style>
   </Fragment>
-  <main class="min-h-screen flex items-center justify-center px-4">
-    <form
-      id="login-form"
-      class="w-full max-w-sm bg-bg-alt border border-border-line rounded-2xl p-8 shadow-sm"
-    >
-      <h1 class="font-serif font-bold text-2xl mb-2 text-center">Zapdafé Admin</h1>
-      <p class="text-sm text-text-mute text-center mb-6">Acesso restrito.</p>
 
-      <label class="block text-sm font-medium mb-2" for="password">Senha</label>
-      <input
-        id="password"
-        name="password"
-        type="password"
-        autocomplete="current-password"
-        required
-        class="w-full px-4 py-3 rounded-xl border border-border-line bg-bg focus:outline-none focus:ring-2 focus:ring-accent"
-      />
+  <div class="login-shell">
+    <div class="login-orb orb-1" aria-hidden="true"></div>
+    <div class="login-orb orb-2" aria-hidden="true"></div>
 
-      <p id="error" class="hidden mt-3 text-sm text-red-600 text-center"></p>
+    <main class="login-center">
+      <div class="login-card">
+        <div class="login-brand">
+          <img src="/logo.svg" alt="Zapdafé" class="login-logo" />
+        </div>
+        <h1 class="login-title">Zapdafé Admin</h1>
+        <p class="login-subtitle">Acesso restrito.</p>
 
-      <button
-        type="submit"
-        class="mt-6 w-full bg-wa-green text-white font-medium py-3 rounded-full hover:bg-wa-dark transition-colors"
-      >
-        Entrar
-      </button>
-    </form>
-  </main>
+        <form id="login-form" novalidate>
+          <label class="login-label" for="password">Senha</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+            class="login-input"
+            placeholder="••••••••••"
+          />
+          <p id="error" class="login-error hidden" role="alert"></p>
+          <button type="submit" class="login-btn" id="login-submit">
+            Entrar
+          </button>
+        </form>
+      </div>
+    </main>
+  </div>
+
+  <style>
+    .login-shell {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #141210;
+      overflow: hidden;
+    }
+    .login-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      pointer-events: none;
+    }
+    .orb-1 {
+      width: 500px; height: 500px;
+      background: radial-gradient(circle, rgba(184,134,11,0.22) 0%, transparent 70%);
+      top: -150px; right: -100px;
+    }
+    .orb-2 {
+      width: 400px; height: 400px;
+      background: radial-gradient(circle, rgba(37,211,102,0.12) 0%, transparent 70%);
+      bottom: -100px; left: -100px;
+    }
+    .login-center {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 400px;
+      padding: 1.5rem;
+    }
+    .login-card {
+      background: rgba(245, 239, 228, 0.04);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(184, 134, 11, 0.25);
+      border-radius: 1.5rem;
+      padding: 2.5rem 2rem;
+    }
+    .login-brand {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 1.25rem;
+    }
+    .login-logo {
+      height: 44px;
+      width: auto;
+      filter: brightness(0) invert(1);
+      opacity: 0.85;
+    }
+    .login-title {
+      font-family: "Fraunces", serif;
+      font-weight: 700;
+      font-size: 1.5rem;
+      color: #F5EFE4;
+      text-align: center;
+      line-height: 1.15;
+    }
+    .login-subtitle {
+      font-size: 0.8125rem;
+      color: rgba(245, 239, 228, 0.4);
+      text-align: center;
+      margin-top: 0.375rem;
+      margin-bottom: 1.75rem;
+    }
+    .login-label {
+      display: block;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: rgba(245, 239, 228, 0.6);
+      margin-bottom: 0.5rem;
+    }
+    .login-input {
+      width: 100%;
+      background: rgba(245, 239, 228, 0.05);
+      border: 1px solid rgba(184, 134, 11, 0.25);
+      border-radius: 0.875rem;
+      padding: 0.8125rem 1rem;
+      font-size: 0.9375rem;
+      color: #F5EFE4;
+      outline: none;
+      transition: border-color 0.15s, background 0.15s;
+      box-sizing: border-box;
+    }
+    .login-input::placeholder { color: rgba(245,239,228,0.2); letter-spacing: 0.2em; }
+    .login-input:focus {
+      border-color: rgba(184, 134, 11, 0.6);
+      background: rgba(245, 239, 228, 0.08);
+    }
+    .login-error {
+      font-size: 0.8125rem;
+      color: #FCA5A5;
+      text-align: center;
+      margin-top: 0.625rem;
+    }
+    .login-btn {
+      width: 100%;
+      margin-top: 1.25rem;
+      background: #25D366;
+      color: #0d1f16;
+      font-weight: 700;
+      font-size: 0.9375rem;
+      padding: 0.875rem;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      transition: background 0.18s, opacity 0.18s;
+      letter-spacing: 0.01em;
+    }
+    .login-btn:hover { background: #1db954; }
+    .login-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .login-btn:focus-visible { outline: 2px solid #B8860B; outline-offset: 2px; }
+    .hidden { display: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition-duration: 0ms !important; }
+    }
+  </style>
 
   <script>
     const form = document.getElementById('login-form') as HTMLFormElement | null;
     const errorEl = document.getElementById('error') as HTMLParagraphElement | null;
     const pwInput = document.getElementById('password') as HTMLInputElement | null;
+    const btn = document.getElementById('login-submit') as HTMLButtonElement | null;
 
     form?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (!pwInput || !errorEl) return;
+      if (!pwInput || !errorEl || !btn) return;
       errorEl.classList.add('hidden');
-      const btn = form.querySelector('button[type=submit]') as HTMLButtonElement;
       btn.disabled = true;
+      btn.textContent = 'Entrando…';
 
       try {
         const res = await fetch('/api/admin/login', {
@@ -55,18 +184,19 @@ import Base from '../layouts/Base.astro';
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           errorEl.textContent =
-            body?.error === 'invalid_credentials' ? 'Senha incorreta.' : 'Erro ao entrar. Tenta de novo.';
+            body?.error === 'invalid_credentials' ? 'Senha incorreta. Tenta de novo.' : 'Erro ao entrar. Tenta de novo.';
           errorEl.classList.remove('hidden');
           btn.disabled = false;
+          btn.textContent = 'Entrar';
           return;
         }
-        const url = new URL(window.location.href);
-        const next = url.searchParams.get('next') || '/admin';
+        const next = new URL(window.location.href).searchParams.get('next') || '/admin';
         window.location.href = next;
       } catch {
         errorEl.textContent = 'Sem conexão. Tenta de novo.';
         errorEl.classList.remove('hidden');
         btn.disabled = false;
+        btn.textContent = 'Entrar';
       }
     });
   </script>
