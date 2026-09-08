@@ -2,7 +2,6 @@ name = "zapdafe"
 compatibility_date = "2025-01-01"
 pages_build_output_dir = "dist"
 
-# KV binding for admin sessions + opt-outs.
-# The namespace itself is created in the Cloudflare dashboard.
-# Bind it in Pages → Settings → Functions → KV namespace bindings
-# with the variable name: KV
+[[kv_namespaces]]
+binding = "KV"
+id = "71f423871ba94149a3bb8f67b4af9642"
