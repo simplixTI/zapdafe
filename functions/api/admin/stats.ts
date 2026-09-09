@@ -22,9 +22,23 @@ interface ChatSummary {
   optedOut: boolean;
 }
 
+interface PeriodStat {
+  label: string;
+  messages: number;
+  newContacts: number;
+  activeContacts: number;
+}
+
 interface StatsResponse {
   cutoffISO: string;
   generatedAtISO: string;
+  totals: {
+    peopleEver: number;
+    messagesEver: number;
+    optedOutCount: number;
+  };
+  periods: PeriodStat[];
+  // legacy fields kept for existing UI compatibility
   people: {
     total: number;
     activeLast24h: number;
@@ -160,6 +174,44 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       0,
     );
 
+    // Year boundary (Jan 1 of current year in Brasília)
+    const yearStart = Date.parse(new Date(now + TZ_OFFSET_MS).getUTCFullYear() + '-01-01T00:00:00-03:00');
+    const lastYearTotal = sumRange(yearStart);
+
+    // Period breakdowns
+    const periods: PeriodStat[] = [
+      {
+        label: 'Hoje',
+        messages: incomingToday + outgoingToday,
+        newContacts: chatSummaries.filter((c) => c.firstMsgAt >= today).length,
+        activeContacts: activeLast24h,
+      },
+      {
+        label: 'Últimos 7 dias',
+        messages: last7dTotal,
+        newContacts: chatSummaries.filter((c) => c.firstMsgAt >= cutoff7d).length,
+        activeContacts: activeLast7d,
+      },
+      {
+        label: 'Últimos 30 dias',
+        messages: last30dTotal,
+        newContacts: chatSummaries.filter((c) => c.firstMsgAt >= cutoff30d).length,
+        activeContacts: activeLast30d,
+      },
+      {
+        label: 'Este ano',
+        messages: lastYearTotal,
+        newContacts: chatSummaries.filter((c) => c.firstMsgAt >= yearStart).length,
+        activeContacts: chatSummaries.filter((c) => c.lastMsgAt >= yearStart).length,
+      },
+      {
+        label: 'Total',
+        messages: totalSinceCutoff,
+        newContacts: chatSummaries.length,
+        activeContacts: chatSummaries.length,
+      },
+    ];
+
     // Peaks from archive hourly
     let peaksTotalIncoming = 0;
     let peaksTotalOutgoing = 0;
@@ -185,6 +237,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const response: StatsResponse = {
       cutoffISO: new Date(CUTOFF_MS).toISOString(),
       generatedAtISO: new Date(now).toISOString(),
+      totals: {
+        peopleEver: chatSummaries.length,
+        messagesEver: totalSinceCutoff,
+        optedOutCount: chatSummaries.filter((c) => c.optedOut).length,
+      },
+      periods,
       people: {
         total: chatSummaries.length,
         activeLast24h,
