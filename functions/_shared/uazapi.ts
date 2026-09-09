@@ -1,8 +1,8 @@
 import type { Env } from './auth';
 
-// Cutoff: 2026-08-01 00:00:00 America/Sao_Paulo (UTC-3)
-// Anything before this is ignored (pre-launch data).
-export const CUTOFF_MS = Date.parse('2026-08-01T00:00:00-03:00');
+// Cutoff: 2026-08-15 00:00:00 America/Sao_Paulo (UTC-3)
+// Anything before this is ignored (pre-launch / testing data).
+export const CUTOFF_MS = Date.parse('2026-08-15T00:00:00-03:00');
 
 export function headers(env: Env): Record<string, string> {
   return { token: env.UAZAPI_TOKEN, 'Content-Type': 'application/json' };
