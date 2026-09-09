@@ -1,11 +1,15 @@
 import type { Env } from '../../_shared/auth';
-import type { UazapiChat } from '../../_shared/uazapi';
 import {
   CUTOFF_MS,
   fetchAllChats,
-  fetchContacts,
   fetchMessagesSinceCutoff,
 } from '../../_shared/uazapi';
+import {
+  archiveIsStale,
+  readArchive,
+  runArchive,
+  type ArchivedContact,
+} from '../../_shared/archive';
 
 interface ChatSummary {
   chatid: string;
@@ -39,7 +43,7 @@ interface StatsResponse {
   };
   daily: Array<{ date: string; incoming: number; outgoing: number; startedConvos: number }>;
   peaks: {
-    grid: number[][];      // [dayOfWeek 0-6][hour 0-23] = incoming count
+    grid: number[][];
     maxCell: number;
     totalIncoming: number;
     totalOutgoing: number;
@@ -47,16 +51,19 @@ interface StatsResponse {
   };
   recent: ChatSummary[];
   debug: {
-    pagesFetched: number;
-    hitPageCap: boolean;
-    uazapiHasMore: boolean;
-    totalMessagesFetched: number;
-    oldestFetchedISO: string | null;
+    archiveLastRunISO: string;
+    archiveDaysCovered: number;
+    archiveTotalContacts: number;
+    archiveTotalMessages: number;
+    lastUazapiFetchPages: number;
+    lastUazapiHasMore: boolean;
+    lastUazapiOldestISO: string | null;
+    archiveJustRan: boolean;
   };
 }
 
 const MS_DAY = 24 * 60 * 60 * 1000;
-const TZ_OFFSET_MS = -3 * 60 * 60 * 1000; // America/Sao_Paulo
+const TZ_OFFSET_MS = -3 * 60 * 60 * 1000;
 
 function brasiliaStartOfDay(nowMs: number): number {
   const shifted = nowMs + TZ_OFFSET_MS;
@@ -64,31 +71,11 @@ function brasiliaStartOfDay(nowMs: number): number {
   return day * MS_DAY - TZ_OFFSET_MS;
 }
 
-function brasiliaDateKey(msTimestamp: number): string {
-  const shifted = new Date(msTimestamp + TZ_OFFSET_MS);
-  const y = shifted.getUTCFullYear();
-  const m = String(shifted.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(shifted.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function chatIdIsUser(id: string): boolean {
-  return id.endsWith('@s.whatsapp.net');
-}
-
-function pickChatName(chat: UazapiChat | undefined, jid: string): string {
-  if (chat?.lead_name) return chat.lead_name;
-  if (chat?.wa_name) return chat.wa_name;
-  const digits = jid.split('@')[0];
-  return digits || 'Sem nome';
-}
-
 async function loadOptOutsSet(env: Env): Promise<Set<string>> {
   const raw = await env.KV.get('optouts:list');
   if (!raw) return new Set();
   try {
-    const arr = JSON.parse(raw) as string[];
-    return new Set(arr);
+    return new Set(JSON.parse(raw) as string[]);
   } catch {
     return new Set();
   }
@@ -98,113 +85,98 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const env = context.env;
 
   try {
-    const [contacts, chats, messagesResult, optOuts] = await Promise.all([
-      fetchContacts(env),
-      fetchAllChats(env),
-      fetchMessagesSinceCutoff(env),
-      loadOptOutsSet(env),
-    ]);
-    const messages = messagesResult.messages;
+    // 1. Load archive first (cheap KV reads)
+    let archive = await readArchive(env);
+    let archiveJustRan = false;
+    let uazapiFetchPages = 0;
+    let uazapiHasMore = false;
+    let uazapiOldestMs: number | null = null;
 
+    // 2. If archive is stale, refresh from Uazapi
+    if (archiveIsStale(archive.meta)) {
+      const [chats, messagesResult] = await Promise.all([
+        fetchAllChats(env),
+        fetchMessagesSinceCutoff(env),
+      ]);
+      uazapiFetchPages = messagesResult.pagesFetched;
+      uazapiHasMore = messagesResult.hasMore;
+      uazapiOldestMs = messagesResult.oldestFetchedMs;
+      archive = await runArchive(env, messagesResult.messages, chats);
+      archiveJustRan = true;
+    }
+
+    // 3. Overlay opt-outs
+    const optOuts = await loadOptOutsSet(env);
+
+    // 4. Build the response from archive
     const now = Date.now();
     const today = brasiliaStartOfDay(now);
     const cutoff24h = now - MS_DAY;
     const cutoff7d = now - 7 * MS_DAY;
     const cutoff30d = now - 30 * MS_DAY;
 
-    const chatByJid = new Map<string, UazapiChat>();
-    for (const c of chats) {
-      const jid = (c.wa_chatid as string | undefined) ?? c.id;
-      chatByJid.set(jid, c);
-    }
+    const contacts = archive.contacts;
+    const contactEntries: Array<[string, ArchivedContact]> = Object.entries(contacts);
 
-    // Aggregate per chat, filtering out groups + self.
-    const perChat = new Map<string, ChatSummary>();
-    for (const m of messages) {
-      if (!chatIdIsUser(m.chatid)) continue;
-      if (m.isGroup) continue;
-
-      let summary = perChat.get(m.chatid);
-      if (!summary) {
-        summary = {
-          chatid: m.chatid,
-          name: pickChatName(chatByJid.get(m.chatid), m.chatid),
-          firstMsgAt: m.messageTimestamp,
-          lastMsgAt: m.messageTimestamp,
-          msgsIn: 0,
-          msgsOut: 0,
-          msgsTotal: 0,
-          optedOut: optOuts.has(m.chatid.split('@')[0]),
-        };
-        perChat.set(m.chatid, summary);
-      }
-      if (m.messageTimestamp < summary.firstMsgAt) summary.firstMsgAt = m.messageTimestamp;
-      if (m.messageTimestamp > summary.lastMsgAt) summary.lastMsgAt = m.messageTimestamp;
-      if (m.fromMe) summary.msgsOut++;
-      else summary.msgsIn++;
-      summary.msgsTotal++;
-    }
-
-    const dailyMap = new Map<
-      string,
-      { incoming: number; outgoing: number; startedConvos: number }
-    >();
-    for (const m of messages) {
-      if (!chatIdIsUser(m.chatid)) continue;
-      if (m.isGroup) continue;
-      const key = brasiliaDateKey(m.messageTimestamp);
-      const row = dailyMap.get(key) ?? { incoming: 0, outgoing: 0, startedConvos: 0 };
-      if (m.fromMe) row.outgoing++;
-      else row.incoming++;
-      dailyMap.set(key, row);
-    }
-    for (const summary of perChat.values()) {
-      const key = brasiliaDateKey(summary.firstMsgAt);
-      const row = dailyMap.get(key) ?? { incoming: 0, outgoing: 0, startedConvos: 0 };
-      row.startedConvos++;
-      dailyMap.set(key, row);
-    }
-
-    const daily = Array.from(dailyMap.entries())
-      .map(([date, v]) => ({ date, ...v }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    // Peaks heatmap: 7 (day of week, 0=Sun) x 24 (hour) of incoming messages
-    const peaksGrid: number[][] = Array.from({ length: 7 }, () => Array<number>(24).fill(0));
-    let peaksTotalIncoming = 0;
-    let peaksTotalOutgoing = 0;
-    let topHour = { day: 0, hour: 0, count: 0 };
-    for (const m of messages) {
-      if (!chatIdIsUser(m.chatid)) continue;
-      if (m.isGroup) continue;
-      if (m.fromMe) { peaksTotalOutgoing++; continue; }
-      peaksTotalIncoming++;
-      const shifted = new Date(m.messageTimestamp + TZ_OFFSET_MS);
-      const day = shifted.getUTCDay();
-      const hour = shifted.getUTCHours();
-      peaksGrid[day][hour]++;
-      if (peaksGrid[day][hour] > topHour.count) {
-        topHour = { day, hour, count: peaksGrid[day][hour] };
-      }
-    }
-    const peaksMax = Math.max(1, ...peaksGrid.flat());
-
-    const chatSummaries = Array.from(perChat.values());
+    const chatSummaries: ChatSummary[] = contactEntries.map(([chatid, c]) => ({
+      chatid,
+      name: c.name,
+      firstMsgAt: c.firstMsgAt,
+      lastMsgAt: c.lastMsgAt,
+      msgsIn: c.msgsIn,
+      msgsOut: c.msgsOut,
+      msgsTotal: c.msgsIn + c.msgsOut,
+      optedOut: optOuts.has(chatid.split('@')[0]),
+    }));
 
     const activeLast24h = chatSummaries.filter((c) => c.lastMsgAt >= cutoff24h).length;
     const activeLast7d = chatSummaries.filter((c) => c.lastMsgAt >= cutoff7d).length;
     const activeLast30d = chatSummaries.filter((c) => c.lastMsgAt >= cutoff30d).length;
     const startedToday = chatSummaries.filter((c) => c.firstMsgAt >= today).length;
 
-    const todayMsgs = messages.filter(
-      (m) => m.messageTimestamp >= today && chatIdIsUser(m.chatid) && !m.isGroup,
+    // Daily rollups
+    const daily = Object.entries(archive.days)
+      .map(([date, v]) => ({ date, ...v }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // Total msgs today from daily
+    const todayKey = new Date(today + TZ_OFFSET_MS).toISOString().slice(0, 10);
+    const todayRow = archive.days[todayKey] ?? { incoming: 0, outgoing: 0, startedConvos: 0 };
+    const incomingToday = todayRow.incoming;
+    const outgoingToday = todayRow.outgoing;
+
+    const sumRange = (fromMs: number): number => {
+      let sum = 0;
+      for (const [date, v] of Object.entries(archive.days)) {
+        const day0 = Date.parse(date + 'T00:00:00-03:00');
+        if (day0 >= fromMs) sum += v.incoming + v.outgoing;
+      }
+      return sum;
+    };
+    const last7dTotal = sumRange(cutoff7d);
+    const last30dTotal = sumRange(cutoff30d);
+    const totalSinceCutoff = Object.values(archive.days).reduce(
+      (acc, v) => acc + v.incoming + v.outgoing,
+      0,
     );
-    const last7dMsgs = messages.filter(
-      (m) => m.messageTimestamp >= cutoff7d && chatIdIsUser(m.chatid) && !m.isGroup,
-    );
-    const last30dMsgs = messages.filter(
-      (m) => m.messageTimestamp >= cutoff30d && chatIdIsUser(m.chatid) && !m.isGroup,
-    );
+
+    // Peaks from archive hourly
+    let peaksTotalIncoming = 0;
+    let peaksTotalOutgoing = 0;
+    for (const v of Object.values(archive.days)) {
+      peaksTotalIncoming += v.incoming;
+      peaksTotalOutgoing += v.outgoing;
+    }
+    let peaksMax = 0;
+    let topHour = { day: 0, hour: 0, count: 0 };
+    for (let d = 0; d < 7; d++) {
+      for (let h = 0; h < 24; h++) {
+        const c = archive.hourly[d][h] ?? 0;
+        if (c > peaksMax) peaksMax = c;
+        if (c > topHour.count) topHour = { day: d, hour: h, count: c };
+      }
+    }
+    peaksMax = Math.max(1, peaksMax);
 
     const recent = [...chatSummaries]
       .sort((a, b) => b.lastMsgAt - a.lastMsgAt)
@@ -222,16 +194,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         optedOutCount: chatSummaries.filter((c) => c.optedOut).length,
       },
       messages: {
-        totalSinceCutoff: messages.filter((m) => chatIdIsUser(m.chatid) && !m.isGroup).length,
-        today: todayMsgs.length,
-        last7d: last7dMsgs.length,
-        last30d: last30dMsgs.length,
-        incomingToday: todayMsgs.filter((m) => !m.fromMe).length,
-        outgoingToday: todayMsgs.filter((m) => m.fromMe).length,
+        totalSinceCutoff,
+        today: incomingToday + outgoingToday,
+        last7d: last7dTotal,
+        last30d: last30dTotal,
+        incomingToday,
+        outgoingToday,
       },
       daily,
       peaks: {
-        grid: peaksGrid,
+        grid: archive.hourly,
         maxCell: peaksMax,
         totalIncoming: peaksTotalIncoming,
         totalOutgoing: peaksTotalOutgoing,
@@ -239,22 +211,20 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       },
       recent,
       debug: {
-        pagesFetched: messagesResult.pagesFetched,
-        hitPageCap: messagesResult.hitPageCap,
-        uazapiHasMore: messagesResult.hasMore,
-        totalMessagesFetched: messages.length,
-        oldestFetchedISO: messagesResult.oldestFetchedMs
-          ? new Date(messagesResult.oldestFetchedMs).toISOString()
-          : null,
+        archiveLastRunISO: archive.meta.lastArchiveISO,
+        archiveDaysCovered: Object.keys(archive.days).length,
+        archiveTotalContacts: archive.meta.totalContactsEver,
+        archiveTotalMessages: archive.meta.totalMessagesEver,
+        lastUazapiFetchPages: uazapiFetchPages,
+        lastUazapiHasMore: uazapiHasMore,
+        lastUazapiOldestISO: uazapiOldestMs ? new Date(uazapiOldestMs).toISOString() : null,
+        archiveJustRan,
       },
     };
 
     return new Response(JSON.stringify(response), {
       status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store',
-      },
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -264,4 +234,3 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     });
   }
 };
-
