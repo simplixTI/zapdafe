@@ -78,21 +78,25 @@ export interface FetchMessagesResult {
 }
 
 /**
- * Fetches all messages since CUTOFF_MS, paginating until exhausted or safety cap.
- * The messageTimestamp in Uazapi appears to be milliseconds since epoch.
+ * Fetches all messages since CUTOFF_MS using offset-based pagination.
+ * Uazapi returns hasMore=true when there are more results at higher offsets.
  */
 export async function fetchMessagesSinceCutoff(env: Env): Promise<FetchMessagesResult> {
   const all: UazapiMessage[] = [];
   const seen = new Set<string>();
-  const maxPages = 100;
-  let cursor: number | undefined = undefined;
+  const LIMIT = 500;
+  const maxPages = 200;
   let pagesFetched = 0;
   let lastHasMore = false;
   let oldestFetched: number | null = null;
+  let reachedCutoff = false;
 
   for (let page = 0; page < maxPages; page++) {
-    const body: Record<string, unknown> = { limit: 500 };
-    if (cursor !== undefined) body.messageTimestamp = { lt: cursor };
+    const body: Record<string, unknown> = {
+      limit: LIMIT,
+      offset: page * LIMIT,
+      sort: '-messageTimestamp',
+    };
 
     const res = await fetch(`${env.UAZAPI_BASE}/message/find`, {
       method: 'POST',
@@ -106,23 +110,23 @@ export async function fetchMessagesSinceCutoff(env: Env): Promise<FetchMessagesR
     const batch = payload.messages ?? [];
     if (batch.length === 0) break;
 
-    let anyKept = false;
+    let anyNew = false;
+    let batchOldest = Infinity;
     for (const m of batch) {
-      if (m.messageTimestamp < CUTOFF_MS) continue;
+      if (m.messageTimestamp < batchOldest) batchOldest = m.messageTimestamp;
+      if (m.messageTimestamp < CUTOFF_MS) { reachedCutoff = true; continue; }
       if (seen.has(m.id)) continue;
       seen.add(m.id);
       all.push(m);
-      anyKept = true;
+      anyNew = true;
       if (oldestFetched === null || m.messageTimestamp < oldestFetched) {
         oldestFetched = m.messageTimestamp;
       }
     }
 
-    const batchOldest = Math.min(...batch.map((m) => m.messageTimestamp));
-    if (batchOldest < CUTOFF_MS) break;
+    if (reachedCutoff) break;
     if (!payload.hasMore) break;
-    if (!anyKept) break;
-    cursor = batchOldest;
+    if (!anyNew) break; // safeguard: if server ignores offset, avoid infinite loop
   }
 
   return {
