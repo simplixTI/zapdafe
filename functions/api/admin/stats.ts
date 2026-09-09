@@ -46,6 +46,13 @@ interface StatsResponse {
     topHour: { day: number; hour: number; count: number };
   };
   recent: ChatSummary[];
+  debug: {
+    pagesFetched: number;
+    hitPageCap: boolean;
+    uazapiHasMore: boolean;
+    totalMessagesFetched: number;
+    oldestFetchedISO: string | null;
+  };
 }
 
 const MS_DAY = 24 * 60 * 60 * 1000;
@@ -91,12 +98,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const env = context.env;
 
   try {
-    const [contacts, chats, messages, optOuts] = await Promise.all([
+    const [contacts, chats, messagesResult, optOuts] = await Promise.all([
       fetchContacts(env),
       fetchAllChats(env),
       fetchMessagesSinceCutoff(env),
       loadOptOutsSet(env),
     ]);
+    const messages = messagesResult.messages;
 
     const now = Date.now();
     const today = brasiliaStartOfDay(now);
@@ -230,6 +238,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         topHour,
       },
       recent,
+      debug: {
+        pagesFetched: messagesResult.pagesFetched,
+        hitPageCap: messagesResult.hitPageCap,
+        uazapiHasMore: messagesResult.hasMore,
+        totalMessagesFetched: messages.length,
+        oldestFetchedISO: messagesResult.oldestFetchedMs
+          ? new Date(messagesResult.oldestFetchedMs).toISOString()
+          : null,
+      },
     };
 
     return new Response(JSON.stringify(response), {

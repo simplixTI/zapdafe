@@ -186,6 +186,7 @@ import Base from '../../layouts/Base.astro';
         <p class="admin-footer-note">
           Filtro ativo: mensagens desde <strong id="cutoff-label">–</strong>.
         </p>
+        <p class="admin-footer-note" id="debug-note" style="opacity:.5"></p>
       </div>
     </main>
   </div>
@@ -726,6 +727,13 @@ import Base from '../../layouts/Base.astro';
         totalOutgoing: number;
         topHour: { day: number; hour: number; count: number };
       };
+      debug?: {
+        pagesFetched: number;
+        hitPageCap: boolean;
+        uazapiHasMore: boolean;
+        totalMessagesFetched: number;
+        oldestFetchedISO: string | null;
+      };
       recent: Array<{
         chatid: string;
         name: string;
@@ -783,6 +791,13 @@ import Base from '../../layouts/Base.astro';
       document.getElementById('kpi-optouts')!.textContent = String(data.people.optedOutCount);
       document.getElementById('last-updated')!.textContent = 'Atualizado ' + fmtDate(Date.parse(data.generatedAtISO));
       document.getElementById('cutoff-label')!.textContent = fmtDateShort(data.cutoffISO);
+      const dbg = data.debug;
+      if (dbg) {
+        const oldest = dbg.oldestFetchedISO ? fmtDate(Date.parse(dbg.oldestFetchedISO)) : '—';
+        const warn = dbg.hitPageCap ? ' ⚠️ ATINGIU LIMITE — dados incompletos' : (dbg.uazapiHasMore ? ' ⚠️ Uazapi diz que há mais dados' : '');
+        document.getElementById('debug-note')!.textContent =
+          `${dbg.totalMessagesFetched} msgs em ${dbg.pagesFetched} páginas · mais antiga: ${oldest}${warn}`;
+      }
       renderPeaks(data.peaks);
       renderRecent(data.recent);
     }

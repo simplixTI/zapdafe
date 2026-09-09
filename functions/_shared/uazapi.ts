@@ -69,15 +69,26 @@ export async function fetchAllChats(env: Env): Promise<UazapiChat[]> {
   return body.chats ?? [];
 }
 
+export interface FetchMessagesResult {
+  messages: UazapiMessage[];
+  pagesFetched: number;
+  hitPageCap: boolean;
+  hasMore: boolean;
+  oldestFetchedMs: number | null;
+}
+
 /**
  * Fetches all messages since CUTOFF_MS, paginating until exhausted or safety cap.
  * The messageTimestamp in Uazapi appears to be milliseconds since epoch.
  */
-export async function fetchMessagesSinceCutoff(env: Env): Promise<UazapiMessage[]> {
+export async function fetchMessagesSinceCutoff(env: Env): Promise<FetchMessagesResult> {
   const all: UazapiMessage[] = [];
   const seen = new Set<string>();
-  const maxPages = 20;
+  const maxPages = 100;
   let cursor: number | undefined = undefined;
+  let pagesFetched = 0;
+  let lastHasMore = false;
+  let oldestFetched: number | null = null;
 
   for (let page = 0; page < maxPages; page++) {
     const body: Record<string, unknown> = { limit: 500 };
@@ -90,21 +101,23 @@ export async function fetchMessagesSinceCutoff(env: Env): Promise<UazapiMessage[
     });
     if (!res.ok) throw new Error(`Uazapi /message/find ${res.status}`);
     const payload = (await res.json()) as MessageFindResponse;
+    pagesFetched++;
+    lastHasMore = !!payload.hasMore;
     const batch = payload.messages ?? [];
     if (batch.length === 0) break;
 
     let anyKept = false;
-    let oldest = cursor ?? Infinity;
     for (const m of batch) {
       if (m.messageTimestamp < CUTOFF_MS) continue;
       if (seen.has(m.id)) continue;
       seen.add(m.id);
       all.push(m);
       anyKept = true;
-      if (m.messageTimestamp < oldest) oldest = m.messageTimestamp;
+      if (oldestFetched === null || m.messageTimestamp < oldestFetched) {
+        oldestFetched = m.messageTimestamp;
+      }
     }
 
-    // Stop when the batch's oldest is already below cutoff — nothing older to fetch.
     const batchOldest = Math.min(...batch.map((m) => m.messageTimestamp));
     if (batchOldest < CUTOFF_MS) break;
     if (!payload.hasMore) break;
@@ -112,5 +125,11 @@ export async function fetchMessagesSinceCutoff(env: Env): Promise<UazapiMessage[
     cursor = batchOldest;
   }
 
-  return all;
+  return {
+    messages: all,
+    pagesFetched,
+    hitPageCap: pagesFetched >= maxPages,
+    hasMore: lastHasMore,
+    oldestFetchedMs: oldestFetched,
+  };
 }
