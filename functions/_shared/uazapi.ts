@@ -95,7 +95,6 @@ export async function fetchMessagesSinceCutoff(env: Env): Promise<FetchMessagesR
     const body: Record<string, unknown> = {
       limit: LIMIT,
       offset: page * LIMIT,
-      sort: '-messageTimestamp',
     };
 
     const res = await fetch(`${env.UAZAPI_BASE}/message/find`, {
