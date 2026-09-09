@@ -38,6 +38,13 @@ interface StatsResponse {
     outgoingToday: number;
   };
   daily: Array<{ date: string; incoming: number; outgoing: number; startedConvos: number }>;
+  peaks: {
+    grid: number[][];      // [dayOfWeek 0-6][hour 0-23] = incoming count
+    maxCell: number;
+    totalIncoming: number;
+    totalOutgoing: number;
+    topHour: { day: number; hour: number; count: number };
+  };
   recent: ChatSummary[];
 }
 
@@ -154,6 +161,26 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       .map(([date, v]) => ({ date, ...v }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
+    // Peaks heatmap: 7 (day of week, 0=Sun) x 24 (hour) of incoming messages
+    const peaksGrid: number[][] = Array.from({ length: 7 }, () => Array<number>(24).fill(0));
+    let peaksTotalIncoming = 0;
+    let peaksTotalOutgoing = 0;
+    let topHour = { day: 0, hour: 0, count: 0 };
+    for (const m of messages) {
+      if (!chatIdIsUser(m.chatid)) continue;
+      if (m.isGroup) continue;
+      if (m.fromMe) { peaksTotalOutgoing++; continue; }
+      peaksTotalIncoming++;
+      const shifted = new Date(m.messageTimestamp + TZ_OFFSET_MS);
+      const day = shifted.getUTCDay();
+      const hour = shifted.getUTCHours();
+      peaksGrid[day][hour]++;
+      if (peaksGrid[day][hour] > topHour.count) {
+        topHour = { day, hour, count: peaksGrid[day][hour] };
+      }
+    }
+    const peaksMax = Math.max(1, ...peaksGrid.flat());
+
     const chatSummaries = Array.from(perChat.values());
 
     const activeLast24h = chatSummaries.filter((c) => c.lastMsgAt >= cutoff24h).length;
@@ -195,6 +222,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         outgoingToday: todayMsgs.filter((m) => m.fromMe).length,
       },
       daily,
+      peaks: {
+        grid: peaksGrid,
+        maxCell: peaksMax,
+        totalIncoming: peaksTotalIncoming,
+        totalOutgoing: peaksTotalOutgoing,
+        topHour,
+      },
       recent,
     };
 

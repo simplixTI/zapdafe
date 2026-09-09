@@ -112,23 +112,27 @@ import Base from '../../layouts/Base.astro';
           </div>
         </section>
 
-        <!-- Chart -->
-        <section aria-labelledby="daily-h">
+        <!-- Peaks heatmap -->
+        <section aria-labelledby="peaks-h">
           <div class="admin-section-header">
-            <h2 id="daily-h" class="admin-h2">Últimos 30 dias</h2>
+            <div>
+              <h2 id="peaks-h" class="admin-h2">Picos por horário</h2>
+              <p class="peaks-sub" id="peaks-sub">–</p>
+            </div>
           </div>
-          <div class="chart-card">
-            <div id="chart" class="chart-bars" role="img" aria-label="Gráfico de mensagens dos últimos 30 dias"></div>
-            <div class="chart-footer">
-              <div class="chart-dates">
-                <span id="chart-start">–</span>
-                <span id="chart-end">–</span>
-              </div>
-              <div class="chart-legend">
-                <span class="legend-item"><span class="legend-dot legend-dot--green"></span>Recebidas</span>
-                <span class="legend-item"><span class="legend-dot legend-dot--gold"></span>Enviadas</span>
-                <span class="legend-item"><span class="legend-dot legend-dot--ring"></span>Novas conversas</span>
-              </div>
+          <div class="peaks-card">
+            <div class="peaks-header">
+              <div class="peaks-corner"></div>
+              <div class="peaks-hours" id="peaks-hours"></div>
+            </div>
+            <div class="peaks-body">
+              <div class="peaks-days" id="peaks-days"></div>
+              <div class="peaks-grid" id="peaks-grid" role="img" aria-label="Heatmap de mensagens recebidas por dia da semana e hora"></div>
+            </div>
+            <div class="peaks-scale">
+              <span>Menos</span>
+              <div class="peaks-scale-gradient"></div>
+              <span>Mais</span>
             </div>
           </div>
         </section>
@@ -480,8 +484,8 @@ import Base from '../../layouts/Base.astro';
     }
     .kpi-value--green { color: #25D366; }
 
-    /* ── Chart ───────────────────────────────────────── */
-    .chart-card {
+    /* ── Peaks heatmap ───────────────────────────────── */
+    .peaks-card {
       background: rgba(245, 239, 228, 0.04);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
@@ -489,77 +493,58 @@ import Base from '../../layouts/Base.astro';
       border-radius: 1.25rem;
       padding: 1.5rem;
     }
-    .chart-bars {
-      height: 180px;
-      display: flex;
-      align-items: flex-end;
-      gap: 2px;
+    .peaks-sub {
+      font-size: 0.75rem;
+      color: rgba(245, 239, 228, 0.4);
+      margin-top: 0.25rem;
     }
-    .chart-footer {
-      margin-top: 0.75rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
+    .peaks-header {
+      display: grid;
+      grid-template-columns: 44px 1fr;
+      margin-bottom: 6px;
     }
-    @media (min-width: 640px) {
-      .chart-footer { flex-direction: row; justify-content: space-between; align-items: center; }
-    }
-    .chart-dates {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.6875rem;
+    .peaks-corner {}
+    .peaks-hours {
+      display: grid;
+      grid-template-columns: repeat(24, 1fr);
+      font-size: 0.625rem;
       color: rgba(245, 239, 228, 0.35);
+      text-align: center;
     }
-    .chart-legend {
-      display: flex;
-      gap: 1rem;
-      flex-wrap: wrap;
+    .peaks-body {
+      display: grid;
+      grid-template-columns: 44px 1fr;
+      gap: 8px;
     }
-    .legend-item {
+    .peaks-days {
+      display: grid;
+      grid-template-rows: repeat(7, 1fr);
+      font-size: 0.6875rem;
+      color: rgba(245, 239, 228, 0.5);
+      text-align: right;
+      align-items: center;
+      gap: 3px;
+    }
+    .peaks-grid {
+      display: grid;
+      grid-template-columns: repeat(24, 1fr);
+      grid-template-rows: repeat(7, 1fr);
+      gap: 3px;
+    }
+    .peaks-scale {
       display: flex;
       align-items: center;
-      gap: 0.375rem;
-      font-size: 0.6875rem;
-      color: rgba(245, 239, 228, 0.45);
+      gap: 8px;
+      margin-top: 1rem;
+      font-size: 0.625rem;
+      color: rgba(245, 239, 228, 0.35);
+      justify-content: flex-end;
     }
-    .legend-dot {
-      display: inline-block;
-      width: 8px; height: 8px;
-      border-radius: 2px;
-      flex-shrink: 0;
-    }
-    .legend-dot--green { background: #25D366; }
-    .legend-dot--gold  { background: #B8860B; }
-    .legend-dot--ring  { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid rgba(245,239,228,0.5); background: transparent; }
-
-    /* chart bar internals (set by JS) */
-    .bar-group {
-      flex: 1;
-      display: flex;
-      align-items: flex-end;
-      gap: 1px;
-      min-width: 4px;
-      position: relative;
-      cursor: default;
-    }
-    .bar-group:hover .bar { opacity: 0.8; }
-    .bar {
-      flex: 1;
-      min-height: 2px;
-      border-radius: 2px 2px 0 0;
-      transition: opacity 0.15s;
-    }
-    .bar-in  { background: #25D366; }
-    .bar-out { background: #B8860B; }
-    .started-dot {
-      position: absolute;
-      top: -5px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 5px; height: 5px;
-      border-radius: 50%;
-      border: 1.5px solid rgba(245, 239, 228, 0.6);
-      background: rgba(20, 18, 16, 0.8);
+    .peaks-scale-gradient {
+      width: 90px;
+      height: 8px;
+      border-radius: 4px;
+      background: linear-gradient(to right, rgba(184,134,11,0.08), rgba(184,134,11,0.9));
     }
 
     /* ── Table ───────────────────────────────────────── */
@@ -734,6 +719,13 @@ import Base from '../../layouts/Base.astro';
         outgoingToday: number;
       };
       daily: Array<{ date: string; incoming: number; outgoing: number; startedConvos: number }>;
+      peaks: {
+        grid: number[][];
+        maxCell: number;
+        totalIncoming: number;
+        totalOutgoing: number;
+        topHour: { day: number; hour: number; count: number };
+      };
       recent: Array<{
         chatid: string;
         name: string;
@@ -791,44 +783,58 @@ import Base from '../../layouts/Base.astro';
       document.getElementById('kpi-optouts')!.textContent = String(data.people.optedOutCount);
       document.getElementById('last-updated')!.textContent = 'Atualizado ' + fmtDate(Date.parse(data.generatedAtISO));
       document.getElementById('cutoff-label')!.textContent = fmtDateShort(data.cutoffISO);
-      renderChart(data.daily);
+      renderPeaks(data.peaks);
       renderRecent(data.recent);
     }
 
-    function renderChart(daily: StatsResponse['daily']) {
-      const chart = document.getElementById('chart')!;
-      chart.innerHTML = '';
-      if (daily.length === 0) {
-        chart.innerHTML = '<div style="color:rgba(245,239,228,.35);font-size:.8125rem;margin:auto;">Sem dados no período.</div>';
-        return;
+    function renderPeaks(peaks: StatsResponse['peaks']) {
+      const DAYS_LONG = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+      const DAYS_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+      // Hour labels (0, 6, 12, 18)
+      const hoursEl = document.getElementById('peaks-hours')!;
+      hoursEl.innerHTML = '';
+      for (let h = 0; h < 24; h++) {
+        const cell = document.createElement('div');
+        cell.textContent = (h % 6 === 0) ? String(h).padStart(2, '0') : '';
+        hoursEl.appendChild(cell);
       }
-      const last30 = daily.slice(-30);
-      const maxVal = Math.max(1, ...last30.map(d => d.incoming + d.outgoing));
-      last30.forEach(d => {
-        const group = document.createElement('div');
-        group.className = 'bar-group';
-        group.setAttribute('title', `${d.date} · ↓${d.incoming} recebidas · ↑${d.outgoing} enviadas · ${d.startedConvos} novas`);
-        group.setAttribute('aria-label', `${d.date}: ${d.incoming} recebidas, ${d.outgoing} enviadas`);
 
-        const inBar = document.createElement('div');
-        inBar.className = 'bar bar-in';
-        inBar.style.height = `${Math.max(2, (d.incoming / maxVal) * 100)}%`;
+      // Day labels
+      const daysEl = document.getElementById('peaks-days')!;
+      daysEl.innerHTML = '';
+      for (const d of DAYS_SHORT) {
+        const cell = document.createElement('div');
+        cell.textContent = d;
+        daysEl.appendChild(cell);
+      }
 
-        const outBar = document.createElement('div');
-        outBar.className = 'bar bar-out';
-        outBar.style.height = `${Math.max(2, (d.outgoing / maxVal) * 100)}%`;
-
-        group.append(inBar, outBar);
-
-        if (d.startedConvos > 0) {
-          const dot = document.createElement('div');
-          dot.className = 'started-dot';
-          group.appendChild(dot);
+      // Grid: 7 rows × 24 cols
+      const gridEl = document.getElementById('peaks-grid')!;
+      gridEl.innerHTML = '';
+      const max = peaks.maxCell || 1;
+      for (let d = 0; d < 7; d++) {
+        for (let h = 0; h < 24; h++) {
+          const value = peaks.grid[d][h] || 0;
+          const intensity = value === 0 ? 0.04 : (0.15 + (value / max) * 0.8);
+          const cell = document.createElement('div');
+          cell.style.cssText = `height:22px;border-radius:3px;background:rgba(184,134,11,${intensity});border:1px solid rgba(184,134,11,0.08);cursor:default;transition:transform .12s`;
+          cell.title = `${DAYS_LONG[d]}, ${String(h).padStart(2,'0')}h — ${value} mensagem${value === 1 ? '' : 's'} recebida${value === 1 ? '' : 's'}`;
+          cell.setAttribute('aria-label', cell.title);
+          cell.addEventListener('mouseenter', () => { cell.style.transform = 'scale(1.15)'; });
+          cell.addEventListener('mouseleave', () => { cell.style.transform = ''; });
+          gridEl.appendChild(cell);
         }
-        chart.appendChild(group);
-      });
-      document.getElementById('chart-start')!.textContent = fmtDateShort(last30[0].date);
-      document.getElementById('chart-end')!.textContent = fmtDateShort(last30[last30.length - 1].date);
+      }
+
+      // Subtitle: top hour + totals
+      const sub = document.getElementById('peaks-sub')!;
+      const t = peaks.topHour;
+      if (t.count > 0) {
+        sub.textContent = `Pico: ${DAYS_LONG[t.day]} às ${String(t.hour).padStart(2,'0')}h (${t.count} msgs) · Total: ${peaks.totalIncoming} recebidas · ${peaks.totalOutgoing} enviadas`;
+      } else {
+        sub.textContent = 'Sem dados suficientes ainda.';
+      }
     }
 
     function renderRecent(recent: StatsResponse['recent']) {
