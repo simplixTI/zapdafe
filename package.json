@@ -19,6 +19,7 @@
     "astro": "^7.2.9",
     "framer-motion": "^13.1.1",
     "lucide-astro": "^0.556.0",
+    "pdf-parse": "^2.4.5",
     "tailwindcss": "^4.3.3"
   },
   "allowScripts": {

@@ -22,3 +22,15 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# supabase
+supabase/.temp/
+supabase/.branches/
+
+# generated bible data (regenerable from parser + source PDF)
+data/*.json
+data/*.txt
+
+# source PDFs (large, not code)
+public/NTLH.pdf
+bibilia.pdf
