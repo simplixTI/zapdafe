@@ -15,6 +15,7 @@ import { buildSystemPrompt, chat, extractName, type ChatMessage } from '../../_s
 import { sendText, sendTyping, type UazapiEnv } from '../../_shared/uazapi-send';
 import { synthesize, sendVoice, splitForVoice } from '../../_shared/voice';
 import { loadHistory, appendMessage, loadProfile, updateProfile } from '../../_shared/conversation';
+import { getPlaylistTracks, formatPlaylistForPrompt } from '../../_shared/spotify';
 
 interface UazapiWebhookMessage {
   chatid?: string;
@@ -151,11 +152,12 @@ async function handleConversation(env: Env, chatid: string, userText: string): P
   // Typing indicator (best-effort)
   await sendTyping(aiUazapiEnv(env), chatid, 1500);
 
-  // Retrieve history, profile, and Bible context in parallel
-  const [history, profile, verses] = await Promise.all([
+  // Retrieve history, profile, Bible context, and playlist in parallel
+  const [history, profile, verses, tracks] = await Promise.all([
     loadHistory(env, chatid),
     loadProfile(env, chatid),
     searchBibleVerses(env, userText, { limit: 3, threshold: 0.32 }),
+    getPlaylistTracks(env),
   ]);
 
   let contactName = profile.name ?? null;
@@ -191,6 +193,7 @@ async function handleConversation(env: Env, chatid: string, userText: string): P
     bibleContext: formatBibleContext(verses),
     isFirstMessage,
     contactName,
+    playlistContext: formatPlaylistForPrompt(tracks),
   });
   const messages: ChatMessage[] = [
     { role: 'system', content: systemContent },

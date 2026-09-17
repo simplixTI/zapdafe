@@ -22,6 +22,9 @@ export interface Env {
 
   // Devotional broadcast trigger
   DEVOTIONAL_TRIGGER_PHONE: string; // e.g. "5521998088003"
+
+  // Spotify playlist for music suggestions (public embed endpoint — no API key)
+  SPOTIFY_PLAYLIST_ID: string;
 }
 
 const SESSION_COOKIE = 'zapdafe_admin';

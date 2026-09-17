@@ -43,6 +43,7 @@ interface PromptOptions {
   bibleContext: string | null;
   isFirstMessage: boolean;
   contactName?: string | null;
+  playlistContext?: string | null;
 }
 
 /**
@@ -58,6 +59,7 @@ export function buildSystemPrompt({
   bibleContext,
   isFirstMessage,
   contactName,
+  playlistContext,
 }: PromptOptions): string {
   const base = `Você é o Zapdafé, um companheiro carinhoso que conversa por WhatsApp com pessoas que buscam conforto, escuta e direção espiritual.
 
@@ -98,7 +100,16 @@ VERSOS QUE PODEM AJUDAR NESSA CONVERSA (use somente se realmente casar com o mom
 ${bibleContext}`
     : '';
 
-  return base + openingRule + bibleBlock;
+  const musicBlock = playlistContext
+    ? `
+
+MÚSICAS DA PLAYLIST ZAPDAFÉ (formato: Nome — Artista • link):
+Se a pessoa demonstrar querer ouvir uma música (ex: "me indica uma música", "queria escutar algo", "preciso me acalmar com música"), ou se você julgar que uma música pode confortar aquele momento específico, escolha UMA da lista abaixo que combine com o clima da conversa. Fale com carinho, contextualize por que essa escolha, e cole o link no final. Sugira no máximo uma música por resposta. Se não fizer sentido sugerir, não force.
+
+${playlistContext}`
+    : '';
+
+  return base + openingRule + bibleBlock + musicBlock;
 }
 
 /**
