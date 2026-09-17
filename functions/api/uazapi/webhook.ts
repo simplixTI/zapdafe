@@ -15,7 +15,7 @@ import { buildSystemPrompt, chat, extractName, type ChatMessage } from '../../_s
 import { sendText, sendTyping, type UazapiEnv } from '../../_shared/uazapi-send';
 import { synthesize, sendVoice, splitForVoice } from '../../_shared/voice';
 import { loadHistory, appendMessage, loadProfile, updateProfile } from '../../_shared/conversation';
-import { getPlaylistTracks, formatPlaylistForPrompt } from '../../_shared/spotify';
+import { getPlaylistTracks, formatPlaylistForPrompt, type Track } from '../../_shared/spotify';
 
 interface UazapiWebhookMessage {
   chatid?: string;
@@ -109,6 +109,33 @@ function aiUazapiEnv(env: Env): UazapiEnv {
 
 async function respondAsText(env: Env, chatid: string, text: string): Promise<void> {
   await sendText(aiUazapiEnv(env), chatid, text);
+}
+
+const SPOTIFY_URL_RE = /https:\/\/open\.spotify\.com\/(?:intl-\w+\/)?(?:track|album|episode|playlist)\/[A-Za-z0-9]+(?:\?[^\s]*)?/g;
+
+/**
+ * If the reply mentions a Spotify URL, verify it actually exists in the
+ * playlist we gave the LLM (guard against hallucinated URLs). Returns:
+ *   - textOnly: the reply with the URL and any nearby "colon-link" phrasing stripped
+ *   - validUrl: the first URL that matched a real playlist track, or null
+ */
+function extractSpotifyLink(reply: string, tracks: Track[]): { textOnly: string; validUrl: string | null } {
+  const matches = reply.match(SPOTIFY_URL_RE) ?? [];
+  if (matches.length === 0) return { textOnly: reply, validUrl: null };
+
+  const validSet = new Set(tracks.map(t => t.url));
+  const validUrl = matches.find(u => validSet.has(u.split('?')[0])) ?? null;
+
+  // Strip ALL spotify URLs from the text (hallucinated ones especially),
+  // plus trailing dangling phrases like "Aqui:" / "Segue o link:" / "Link:"
+  let textOnly = reply.replace(SPOTIFY_URL_RE, '').trim();
+  textOnly = textOnly
+    .replace(/\s*(?:aqui|segue|escuta|ouça|link|spotify)\s*[:\-—]?\s*$/i, '')
+    .replace(/\s+([.,!?…])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return { textOnly, validUrl };
 }
 
 async function respondAsVoice(env: Env, chatid: string, text: string): Promise<void> {
@@ -209,10 +236,20 @@ async function handleConversation(env: Env, chatid: string, userText: string): P
   await appendMessage(env, chatid, { role: 'assistant', content: reply });
   await updateProfile(env, chatid, {});
 
-  if (reply.length > MAX_TEXT_LEN_FOR_VOICE) {
-    await respondAsVoice(env, chatid, reply);
-  } else {
-    await respondAsText(env, chatid, reply);
+  // Separate any Spotify link so we can send text first, then link as its
+  // own message (WhatsApp then renders a preview card for the link).
+  const { textOnly, validUrl } = extractSpotifyLink(reply, tracks);
+
+  if (textOnly.length > MAX_TEXT_LEN_FOR_VOICE) {
+    await respondAsVoice(env, chatid, textOnly);
+  } else if (textOnly) {
+    await respondAsText(env, chatid, textOnly);
+  }
+
+  if (validUrl) {
+    // Short pause so the text lands first
+    await new Promise(r => setTimeout(r, 700));
+    await respondAsText(env, chatid, validUrl);
   }
 }
 
