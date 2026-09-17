@@ -1,7 +1,10 @@
 // Thin wrapper around the OpenAI Chat Completions API for CF Worker runtime.
 // Uses only fetch — no SDK.
 
-export interface LlmEnv {
+import { recordUsage } from './usage';
+import type { Env } from './auth';
+
+export interface LlmEnv extends Partial<Env> {
   OPENAI_API_KEY: string;
 }
 
@@ -35,8 +38,16 @@ export async function chat(
   }
   const json = (await res.json()) as {
     choices: Array<{ message: { content: string } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
-  return json.choices[0]?.message?.content?.trim() ?? '';
+  const content = json.choices[0]?.message?.content?.trim() ?? '';
+  if (env.KV && json.usage) {
+    await recordUsage(env as Env, {
+      chatIn: json.usage.prompt_tokens ?? 0,
+      chatOut: json.usage.completion_tokens ?? 0,
+    });
+  }
+  return content;
 }
 
 interface PromptOptions {

@@ -140,6 +140,58 @@ import Base from '../../layouts/Base.astro';
           </div>
         </section>
 
+        <!-- Sistema (custos/quotas) -->
+        <section aria-labelledby="sys-h">
+          <div class="admin-section-header">
+            <h2 id="sys-h" class="admin-h2">Sistema</h2>
+          </div>
+          <div class="sys-grid">
+            <div class="sys-card">
+              <div class="sys-head">
+                <span class="sys-label">OpenAI (GPT-4o-mini)</span>
+                <span class="sys-badge" id="sys-openai-today">–</span>
+              </div>
+              <div class="sys-value" id="sys-openai-month">$0.00</div>
+              <div class="sys-sub">este mês · <span id="sys-openai-30d">$0.00 em 30d</span></div>
+              <div class="sys-detail" id="sys-openai-detail">–</div>
+            </div>
+            <div class="sys-card">
+              <div class="sys-head">
+                <span class="sys-label">ElevenLabs</span>
+                <span class="sys-badge" id="sys-el-tier">–</span>
+              </div>
+              <div class="sys-value" id="sys-el-used">–</div>
+              <div class="sys-sub" id="sys-el-limit">– de – caracteres</div>
+              <div class="sys-bar" aria-hidden="true"><div class="sys-bar-fill" id="sys-el-bar" style="width:0%"></div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Conversas com a IA -->
+        <section aria-labelledby="convs-h">
+          <div class="admin-section-header">
+            <div>
+              <h2 id="convs-h" class="admin-h2">Conversas com a IA</h2>
+              <p class="peaks-sub" id="convs-sub">–</p>
+            </div>
+          </div>
+          <div class="table-card">
+            <div class="table-wrap">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>Contato</th>
+                    <th>Última mensagem</th>
+                    <th class="th-num">Turnos</th>
+                    <th>Quando</th>
+                  </tr>
+                </thead>
+                <tbody id="convs-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
         <!-- Peaks heatmap -->
         <section aria-labelledby="peaks-h">
           <div class="admin-section-header">
@@ -662,6 +714,106 @@ import Base from '../../layouts/Base.astro';
     .revealed .total-spark path.spark-line { stroke-dashoffset: 0; }
     .revealed .total-spark path.spark-area { opacity: 1; }
 
+    /* ── System (costs/quotas) ───────────────────────── */
+    .sys-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.875rem;
+    }
+    @media (min-width: 640px) { .sys-grid { grid-template-columns: repeat(2, 1fr); } }
+    .sys-card {
+      background: rgba(245, 239, 228, 0.04);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(184, 134, 11, 0.18);
+      border-radius: 1.125rem;
+      padding: 1.125rem 1.25rem;
+      transition: border-color .2s;
+    }
+    .sys-card:hover { border-color: rgba(184, 134, 11, 0.35); }
+    .sys-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.375rem;
+    }
+    .sys-label {
+      font-size: 0.6875rem;
+      color: rgba(245, 239, 228, 0.55);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+    }
+    .sys-badge {
+      font-size: 0.6875rem;
+      color: rgba(245, 239, 228, 0.7);
+      background: rgba(184, 134, 11, 0.14);
+      border: 1px solid rgba(184, 134, 11, 0.28);
+      padding: 0.125rem 0.5rem;
+      border-radius: 999px;
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+    }
+    .sys-value {
+      font-family: "Fraunces", serif;
+      font-weight: 700;
+      font-size: 1.75rem;
+      color: #F5EFE4;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .sys-sub {
+      font-size: 0.75rem;
+      color: rgba(245, 239, 228, 0.5);
+      margin-top: 0.4375rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .sys-detail {
+      font-size: 0.6875rem;
+      color: rgba(245, 239, 228, 0.35);
+      margin-top: 0.375rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .sys-bar {
+      margin-top: 0.75rem;
+      height: 5px;
+      border-radius: 999px;
+      background: rgba(184, 134, 11, 0.10);
+      overflow: hidden;
+    }
+    .sys-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, rgba(184,134,11,0.6), rgba(212,160,23,1));
+      border-radius: 999px;
+      transition: width 0.6s cubic-bezier(.2,.7,.2,1);
+    }
+    .sys-bar-fill.warn { background: linear-gradient(90deg, rgba(212,160,23,0.7), rgba(239,142,66,1)); }
+    .sys-bar-fill.crit { background: linear-gradient(90deg, rgba(239,66,66,0.7), rgba(255,90,90,1)); }
+
+    /* ── Conversas table extras ──────────────────────── */
+    .conv-preview {
+      color: rgba(245, 239, 228, 0.75);
+      font-size: 0.8125rem;
+      line-height: 1.45;
+      max-width: 44ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .conv-role {
+      font-size: 0.625rem;
+      color: rgba(184, 134, 11, 0.7);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-right: 0.375rem;
+      font-weight: 600;
+    }
+    .conv-role--assistant { color: rgba(37, 211, 102, 0.75); }
+
     /* ── Periods table ───────────────────────────────── */
     .periods-table th.th-num, .periods-table td.td-num {
       text-align: right;
@@ -1116,6 +1268,119 @@ import Base from '../../layouts/Base.astro';
       }
     }
 
+    interface ObservabilityResponse {
+      openai: {
+        todayCostUsd: number;
+        todayInTokens: number;
+        todayOutTokens: number;
+        todayEmbedTokens: number;
+        monthCostUsd: number;
+        last30dCostUsd: number;
+      };
+      elevenlabs: {
+        charactersUsed: number;
+        charactersLimit: number;
+        percentUsed: number;
+        tier: string | null;
+        error?: string;
+      };
+      conversations: {
+        activeLast24h: number;
+        totalTracked: number;
+        recent: Array<{
+          chatid: string;
+          name: string | null;
+          turns: number;
+          lastAtISO: string | null;
+          lastFromRole: 'user' | 'assistant' | null;
+          lastPreview: string;
+        }>;
+      };
+    }
+
+    function fmtUsd(n: number): string {
+      return '$' + n.toFixed(n < 1 ? 4 : 2);
+    }
+
+    async function loadObservability() {
+      try {
+        const res = await fetch('/api/admin/observability', { credentials: 'same-origin' });
+        if (!res.ok) return;
+        const data = await res.json() as ObservabilityResponse;
+        renderObservability(data);
+      } catch (err) {
+        console.warn('observability failed:', err);
+      }
+    }
+
+    function renderObservability(data: ObservabilityResponse) {
+      // OpenAI card
+      const openai = data.openai;
+      document.getElementById('sys-openai-today')!.textContent = 'hoje ' + fmtUsd(openai.todayCostUsd);
+      document.getElementById('sys-openai-month')!.textContent = fmtUsd(openai.monthCostUsd);
+      document.getElementById('sys-openai-30d')!.textContent = fmtUsd(openai.last30dCostUsd) + ' em 30d';
+      const inK = Math.round(openai.todayInTokens / 100) / 10;
+      const outK = Math.round(openai.todayOutTokens / 100) / 10;
+      const embK = Math.round(openai.todayEmbedTokens / 100) / 10;
+      document.getElementById('sys-openai-detail')!.textContent =
+        `hoje: ${inK}k in · ${outK}k out · ${embK}k embed`;
+
+      // ElevenLabs card
+      const el = data.elevenlabs;
+      const tierBadge = document.getElementById('sys-el-tier')!;
+      if (el.error) {
+        tierBadge.textContent = 'erro';
+        document.getElementById('sys-el-used')!.textContent = '—';
+        document.getElementById('sys-el-limit')!.textContent = el.error;
+      } else {
+        tierBadge.textContent = el.tier || 'free';
+        document.getElementById('sys-el-used')!.textContent = fmtInt(el.charactersUsed);
+        document.getElementById('sys-el-limit')!.textContent =
+          `de ${fmtInt(el.charactersLimit)} caracteres · ${el.percentUsed.toFixed(1)}%`;
+      }
+      const bar = document.getElementById('sys-el-bar')!;
+      const pct = Math.min(100, Math.max(0, el.percentUsed));
+      bar.style.width = pct + '%';
+      bar.classList.remove('warn', 'crit');
+      if (pct >= 90) bar.classList.add('crit');
+      else if (pct >= 70) bar.classList.add('warn');
+
+      // Conversations
+      const sub = document.getElementById('convs-sub')!;
+      sub.textContent = `${data.conversations.activeLast24h} ativa${data.conversations.activeLast24h === 1 ? '' : 's'} nas últimas 24h · ${data.conversations.totalTracked} contatos registrados`;
+
+      const body = document.getElementById('convs-body')!;
+      body.innerHTML = '';
+      if (data.conversations.recent.length === 0) {
+        body.innerHTML = '<tr><td colspan="4" style="padding:2rem 1rem;text-align:center;color:rgba(245,239,228,.35)">Nenhuma conversa ainda.</td></tr>';
+        return;
+      }
+      for (const c of data.conversations.recent) {
+        const tr = document.createElement('tr');
+        const initial = (c.name?.match(/[A-Za-zÀ-ÿ]/) || ['?'])[0]!.toUpperCase();
+        const hue = hueFromString(c.chatid);
+        const role = c.lastFromRole ?? 'user';
+        const roleLabel = role === 'assistant' ? 'AI' : 'contato';
+        tr.innerHTML = `
+          <td style="padding:1rem">
+            <div class="contact-cell">
+              <div class="contact-avatar" style="--h:${hue}" aria-hidden="true">${initial}</div>
+              <div>
+                <div class="td-name">${escapeHtml(c.name || 'sem nome')}</div>
+                <div class="td-phone">${escapeHtml(phoneFromChatId(c.chatid))}</div>
+              </div>
+            </div>
+          </td>
+          <td style="padding:1rem">
+            <div class="conv-preview"><span class="conv-role conv-role--${role}">${roleLabel}</span>${escapeHtml(c.lastPreview || '—')}</div>
+          </td>
+          <td style="padding:1rem;text-align:right"><span class="period-num period-num--muted">${c.turns}</span></td>
+          <td class="td-date" style="padding:1rem">${c.lastAtISO ? fmtRelative(Date.parse(c.lastAtISO)) : '—'}</td>
+        `;
+        body.appendChild(tr);
+      }
+    }
+
     async function loadStats() {
       const skeleton = document.getElementById('skeleton')!;
       const errorEl = document.getElementById('error')!;
@@ -1491,7 +1756,7 @@ import Base from '../../layouts/Base.astro';
     document.getElementById('refresh-btn')?.addEventListener('click', () => {
       const btn = document.getElementById('refresh-btn') as HTMLButtonElement;
       btn.style.opacity = '0.5';
-      Promise.all([loadStats(), loadOptOuts()]).finally(() => { btn.style.opacity = ''; });
+      Promise.all([loadStats(), loadOptOuts(), loadObservability()]).finally(() => { btn.style.opacity = ''; });
     });
     document.getElementById('logout-btn')?.addEventListener('click', async () => {
       await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
@@ -1516,5 +1781,6 @@ import Base from '../../layouts/Base.astro';
 
     loadStats();
     loadOptOuts();
+    loadObservability();
   </script>
 </Base>

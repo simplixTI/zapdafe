@@ -1,6 +1,9 @@
 // RAG lookup against Supabase pgvector using OpenAI embeddings.
 // Runs inside a Cloudflare Pages Function (edge runtime, no Node deps).
 
+import { recordUsage } from './usage';
+import type { Env } from './auth';
+
 export interface BibleVerseHit {
   id: string;
   book: string;
@@ -11,7 +14,7 @@ export interface BibleVerseHit {
   similarity: number;
 }
 
-export interface BibleRagEnv {
+export interface BibleRagEnv extends Partial<Env> {
   OPENAI_API_KEY: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
@@ -46,9 +49,15 @@ export async function searchBibleVerses(
       console.error('bible-rag embed:', embRes.status, await embRes.text());
       return [];
     }
-    const embJson = (await embRes.json()) as { data: Array<{ embedding: number[] }> };
+    const embJson = (await embRes.json()) as {
+      data: Array<{ embedding: number[] }>;
+      usage?: { prompt_tokens?: number; total_tokens?: number };
+    };
     const embedding = embJson.data?.[0]?.embedding;
     if (!embedding) return [];
+    if (env.KV && embJson.usage) {
+      await recordUsage(env as Env, { embed: embJson.usage.total_tokens ?? embJson.usage.prompt_tokens ?? 0 });
+    }
 
     const sbUrl = env.SUPABASE_URL.replace(/\/$/, '');
     const rpcRes = await fetch(`${sbUrl}/rest/v1/rpc/match_bible_verses`, {
