@@ -11,10 +11,10 @@
 
 import type { Env } from '../../_shared/auth';
 import { searchBibleVerses, formatBibleContext } from '../../_shared/bible-rag';
-import { buildSystemPrompt, chat, type ChatMessage } from '../../_shared/llm';
+import { buildSystemPrompt, chat, extractName, type ChatMessage } from '../../_shared/llm';
 import { sendText, sendTyping, type UazapiEnv } from '../../_shared/uazapi-send';
 import { synthesize, sendVoice, splitForVoice } from '../../_shared/voice';
-import { loadHistory, appendMessage } from '../../_shared/conversation';
+import { loadHistory, appendMessage, loadProfile, updateProfile } from '../../_shared/conversation';
 
 interface UazapiWebhookMessage {
   chatid?: string;
@@ -103,17 +103,73 @@ async function respondAsVoice(env: Env, chatid: string, text: string): Promise<v
 
 // ---------- conversation branch ----------
 
+/**
+ * Look up a chatid in the admin's archived contacts (from the old Uazapi
+ * session that was managed via n8n). If found, the person is a returning
+ * user — we know their name and shouldn't treat this as a first-time
+ * introduction.
+ */
+async function existingContactFromArchive(env: Env, chatid: string): Promise<{ name: string } | null> {
+  const raw = await env.KV.get('arch:contacts');
+  if (!raw) return null;
+  try {
+    const contacts = JSON.parse(raw) as Record<string, { name?: string }>;
+    const c = contacts[chatid];
+    if (!c) return null;
+    const name = c.name?.trim();
+    // Skip if name is empty or just phone digits
+    if (!name || /^\d+$/.test(name)) return null;
+    return { name: name.split(/\s+/)[0] }; // first name only
+  } catch {
+    return null;
+  }
+}
+
 async function handleConversation(env: Env, chatid: string, userText: string): Promise<void> {
   // Typing indicator (best-effort)
   await sendTyping(aiUazapiEnv(env), chatid, 1500);
 
-  // Retrieve conversation history and Bible context in parallel
-  const [history, verses] = await Promise.all([
+  // Retrieve history, profile, and Bible context in parallel
+  const [history, profile, verses] = await Promise.all([
     loadHistory(env, chatid),
+    loadProfile(env, chatid),
     searchBibleVerses(env, userText, { limit: 3, threshold: 0.32 }),
   ]);
 
-  const systemContent = buildSystemPrompt(formatBibleContext(verses));
+  let contactName = profile.name ?? null;
+
+  // If we have no local history AND no profile, check whether this person
+  // already exists in the archive (i.e., they talked to us via the previous
+  // n8n flow). If yes, they're a returning user — not a first-time contact.
+  let treatAsFirstMessage = history.length === 0;
+  if (treatAsFirstMessage && !contactName) {
+    const archived = await existingContactFromArchive(env, chatid);
+    if (archived) {
+      contactName = archived.name;
+      await updateProfile(env, chatid, { name: archived.name });
+      treatAsFirstMessage = false;
+    }
+  }
+
+  // If we still don't have a name and this isn't the very first message,
+  // try to extract one from what the user just said (they might be
+  // answering our earlier "qual seu nome?"). Best-effort — never blocks.
+  if (!contactName && !treatAsFirstMessage) {
+    try {
+      const extracted = await extractName(env, userText);
+      if (extracted) {
+        contactName = extracted;
+        await updateProfile(env, chatid, { name: extracted });
+      }
+    } catch {/* ignore */}
+  }
+  const isFirstMessage = treatAsFirstMessage;
+
+  const systemContent = buildSystemPrompt({
+    bibleContext: formatBibleContext(verses),
+    isFirstMessage,
+    contactName,
+  });
   const messages: ChatMessage[] = [
     { role: 'system', content: systemContent },
     ...history,
@@ -123,9 +179,10 @@ async function handleConversation(env: Env, chatid: string, userText: string): P
   const reply = await chat(env, messages, { maxTokens: 500, temperature: 0.75 });
   if (!reply) return;
 
-  // Persist history AFTER we have the reply so we don't save orphan turns
+  // Persist history and touch profile timestamps
   await appendMessage(env, chatid, { role: 'user', content: userText });
   await appendMessage(env, chatid, { role: 'assistant', content: reply });
+  await updateProfile(env, chatid, {});
 
   if (reply.length > MAX_TEXT_LEN_FOR_VOICE) {
     await respondAsVoice(env, chatid, reply);

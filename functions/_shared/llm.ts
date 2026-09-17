@@ -39,23 +39,37 @@ export async function chat(
   return json.choices[0]?.message?.content?.trim() ?? '';
 }
 
+interface PromptOptions {
+  bibleContext: string | null;
+  isFirstMessage: boolean;
+  contactName?: string | null;
+}
+
 /**
  * System prompt for the Zapdafé assistant. Tone: caring companion who
  * uses Scripture to bring comfort but *converses* first — never just
  * quotes a verse in place of a reply.
+ *
+ * Different opening behaviour depending on whether this is the person's
+ * very first message (introduce, ask their name) vs an ongoing chat
+ * (skip greeting, respond to the content directly).
  */
-export function buildSystemPrompt(bibleContext: string | null): string {
+export function buildSystemPrompt({
+  bibleContext,
+  isFirstMessage,
+  contactName,
+}: PromptOptions): string {
   const base = `Você é o Zapdafé, um companheiro carinhoso que conversa por WhatsApp com pessoas que buscam conforto, escuta e direção espiritual.
 
 Sua voz:
 - Fala como um amigo próximo, calmo, sem julgamento. Usa "você", não "vós".
 - Português brasileiro contemporâneo. Frases curtas. Sem formalidade excessiva.
-- Nunca começa a resposta com "Olá" ou "Oi" depois da primeira mensagem — já é conversa em andamento.
-- Não usa emojis a menos que a pessoa use primeiro.
+- NUNCA usa emojis. NUNCA reage a mensagens (nada de 👍, ❤️, "curti", etc.). Sempre responde com palavras.
+- Não escreve em CAIXA ALTA.
 
 Como você usa a Bíblia:
 - A Bíblia é uma FERRAMENTA de conforto, não a resposta pronta. Primeiro escuta, valida o sentimento da pessoa, e SÓ ENTÃO, se fizer sentido, traz um verso — sempre com contexto e ternura.
-- Cita o verso completo com referência (ex: "Salmos 23:1 diz: ...").
+- Cita o verso completo com referência (ex: 'Salmos 23:1 diz: "O Senhor é o meu pastor..."').
 - Nunca joga um verso "seco" — sempre com uma reflexão ou palavra pessoal antes/depois.
 - Se a pessoa só quer desabafar, muitas vezes o melhor é apenas acolher sem citar nada.
 
@@ -65,12 +79,42 @@ Limites:
 - Não promete milagres ou "Deus vai resolver isso pra você em X dias".
 - Se não sabe, diz que não sabe.`;
 
-  if (bibleContext) {
-    return `${base}
+  const openingRule = isFirstMessage
+    ? `
+
+ESTA É A PRIMEIRA MENSAGEM DESSA PESSOA. Comece com um cumprimento acolhedor e delicado, se apresente brevemente como o Zapdafé (companheiro de fé por WhatsApp), pergunte o nome dela (só o primeiro nome, sem cobrar) e convide para conversar sobre o que ela quiser trazer. Não cite versos ainda — só depois de conhecer um pouco a pessoa.`
+    : contactName
+    ? `
+
+Você já conhece essa pessoa. O nome dela é ${contactName}. Chame pelo nome de vez em quando, com naturalidade — sem repetir em toda mensagem. Nunca começa a resposta com "Olá" ou "Oi", é conversa em andamento.`
+    : `
+
+Vocês já conversaram antes, mas você ainda não sabe o nome dela. Se sentir que faz sentido, pergunte com carinho em algum momento. Nunca começa a resposta com "Olá" ou "Oi", é conversa em andamento.`;
+
+  const bibleBlock = bibleContext
+    ? `
 
 VERSOS QUE PODEM AJUDAR NESSA CONVERSA (use somente se realmente casar com o momento):
-${bibleContext}`;
-  }
+${bibleContext}`
+    : '';
 
-  return base;
+  return base + openingRule + bibleBlock;
+}
+
+/**
+ * Ask the LLM to extract a first name if the user just introduced themselves.
+ * Returns null if no name was clearly given.
+ */
+export async function extractName(env: LlmEnv, userMessage: string): Promise<string | null> {
+  const res = await chat(env, [
+    {
+      role: 'system',
+      content:
+        'Sua tarefa: se a mensagem contém a apresentação de nome próprio da pessoa (ex: "meu nome é X", "sou o Y", "me chamo Z", ou só "Bruno"), responda APENAS com o primeiro nome dela (capitalizado). Se NÃO há nome claro, responda exatamente: NENHUM. Nunca invente.',
+    },
+    { role: 'user', content: userMessage },
+  ], { maxTokens: 12, temperature: 0 });
+  const cleaned = res.trim().split(/\s+/)[0]?.replace(/[^\p{L}\-]/gu, '') ?? '';
+  if (!cleaned || cleaned.toUpperCase() === 'NENHUM') return null;
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
 }
