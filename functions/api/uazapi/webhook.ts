@@ -23,7 +23,9 @@ interface UazapiWebhookMessage {
   message?: {
     conversation?: string;
     extendedTextMessage?: { text?: string };
+    reactionMessage?: { text?: string; key?: unknown };
   };
+  messageType?: string;
   text?: string;
   fromMe?: boolean;
   isGroup?: boolean;
@@ -53,6 +55,26 @@ function extractText(m: UazapiWebhookMessage): string {
     m.message?.extendedTextMessage?.text ??
     ''
   ).trim();
+}
+
+/**
+ * True if the payload is a WhatsApp reaction (👍/❤️ tap on a specific
+ * message) — those must never trigger a reply.
+ */
+function isReaction(m: UazapiWebhookMessage): boolean {
+  if (m.messageType === 'reaction') return true;
+  if (m.message?.reactionMessage) return true;
+  return false;
+}
+
+/**
+ * True if the text is only emoji/symbols/punctuation/whitespace — i.e. has
+ * no letters or digits at all. Those messages don't need a spoken reply
+ * (the user is just reacting or emoting).
+ */
+function isEmojiOnly(text: string): boolean {
+  if (!text) return true;
+  return !/[\p{L}\p{N}]/u.test(text);
 }
 
 function extractChatId(m: UazapiWebhookMessage): string {
@@ -271,9 +293,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const fromMe = extractFromMe(m);
   const isGroup = m.isGroup || chatid.endsWith('@g.us');
 
-  // Ignore rules
-  if (!chatid || !text || fromMe || m.wasSentByApi || isGroup) {
+  // Ignore rules — silent 200 so Uazapi doesn't retry
+  if (!chatid || fromMe || m.wasSentByApi || isGroup) {
     return new Response('ignored', { status: 200 });
+  }
+  // Reactions (heart tap on our message, thumbs up, etc.) never trigger a reply
+  if (isReaction(m)) {
+    return new Response(JSON.stringify({ ok: true, kind: 'ignored_reaction' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  // Emoji-only messages ("❤️", "👍👍", "🙏🏼🙏🏼") — treat as a silent nod
+  if (!text || isEmojiOnly(text)) {
+    return new Response(JSON.stringify({ ok: true, kind: 'ignored_emoji_only' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   const phone = phoneFromChatId(chatid);
