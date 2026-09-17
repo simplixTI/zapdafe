@@ -4,6 +4,24 @@ export interface Env {
   UAZAPI_TOKEN: string;
   UAZAPI_BASE: string;
   BUBBLE_BEARER: string;
+
+  // AI response engine — dedicated Uazapi instance (luxprodutora)
+  AI_UAZAPI_BASE: string;
+  AI_UAZAPI_TOKEN: string;
+  AI_WEBHOOK_SECRET: string;
+
+  // LLM + RAG
+  OPENAI_API_KEY: string;
+  SUPABASE_URL: string;
+  SUPABASE_SERVICE_ROLE_KEY: string;
+  BIBLE_RAG_ENABLED?: string;
+
+  // Voice
+  ELEVENLABS_API_KEY: string;
+  ELEVENLABS_VOICE_ID: string;
+
+  // Devotional broadcast trigger
+  DEVOTIONAL_TRIGGER_PHONE: string; // e.g. "5521998088003"
 }
 
 const SESSION_COOKIE = 'zapdafe_admin';
