@@ -264,7 +264,13 @@ interface ArchivedContact {
 }
 
 const BROADCAST_ACTIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-const BROADCAST_DELAY_MS = 1200; // spacing between sends to avoid Uazapi rate limits
+const BROADCAST_DELAY_MIN_MS = 1000;
+const BROADCAST_DELAY_MAX_MS = 6000;
+const PROGRESS_CHECKPOINT_EVERY = 10;
+
+function randomDelayMs(): number {
+  return BROADCAST_DELAY_MIN_MS + Math.floor(Math.random() * (BROADCAST_DELAY_MAX_MS - BROADCAST_DELAY_MIN_MS + 1));
+}
 
 async function handleDevotionalBroadcast(env: Env, sourceText: string, messageId: string): Promise<void> {
   // Idempotency: if we already broadcast this messageId, skip
@@ -286,17 +292,44 @@ async function handleDevotionalBroadcast(env: Env, sourceText: string, messageId
     targets.push(chatid);
   }
 
-  const stats = { total: targets.length, sent: 0, failed: 0, at: new Date().toISOString() };
-  for (const chatid of targets) {
-    try {
-      await sendText(aiUazapiEnv(env), chatid, sourceText);
-      stats.sent += 1;
-    } catch (err) {
+  const progressKey = `broadcast:progress:${messageId}`;
+  const startedAt = Date.now();
+  const stats = {
+    total: targets.length,
+    dispatched: 0, // fire-and-forget: we asked Uazapi to send
+    failed: 0,
+    lastChatid: null as string | null,
+    startedAtISO: new Date(startedAt).toISOString(),
+    updatedAtISO: new Date(startedAt).toISOString(),
+    finishedAtISO: null as string | null,
+  };
+  const persist = () => env.KV.put(progressKey, JSON.stringify({ ...stats, updatedAtISO: new Date().toISOString() }), { expirationTtl: 60 * 60 * 24 * 30 });
+  await persist();
+
+  const aiEnv = aiUazapiEnv(env);
+  for (let i = 0; i < targets.length; i++) {
+    const chatid = targets[i];
+    // Fire-and-forget — do NOT await. This keeps CPU usage per iteration
+    // minimal so we can broadcast to hundreds of contacts without hitting
+    // the Worker's CPU budget mid-run.
+    sendText(aiEnv, chatid, sourceText).catch(err => {
       stats.failed += 1;
-      console.error(`broadcast to ${chatid}:`, err instanceof Error ? err.message : String(err));
+      console.error(`broadcast send to ${chatid}:`, err instanceof Error ? err.message : String(err));
+    });
+    stats.dispatched += 1;
+    stats.lastChatid = chatid;
+
+    if ((i + 1) % PROGRESS_CHECKPOINT_EVERY === 0) {
+      await persist();
     }
-    await new Promise(r => setTimeout(r, BROADCAST_DELAY_MS));
+    if (i < targets.length - 1) {
+      await new Promise(r => setTimeout(r, randomDelayMs()));
+    }
   }
+
+  stats.finishedAtISO = new Date().toISOString();
+  await persist();
+  // Legacy log key for backwards compat with any external tooling
   await env.KV.put(`broadcast:log:${messageId}`, JSON.stringify(stats), { expirationTtl: 60 * 60 * 24 * 30 });
 }
 
