@@ -190,8 +190,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return new Response('Method not allowed', { status: 405 });
   }
 
-  // Shared-secret auth — Uazapi should be configured to send this header
-  const providedSecret = request.headers.get('x-webhook-secret');
+  // Shared-secret auth — Uazapi can send via header OR ?secret= query param
+  // (some Uazapi builds don't support custom headers on webhooks).
+  const url = new URL(request.url);
+  const providedSecret =
+    request.headers.get('x-webhook-secret') ?? url.searchParams.get('secret');
   if (!env.AI_WEBHOOK_SECRET || providedSecret !== env.AI_WEBHOOK_SECRET) {
     return new Response('unauthorized', { status: 401 });
   }
