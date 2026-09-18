@@ -264,12 +264,13 @@ interface ArchivedContact {
 }
 
 const BROADCAST_ACTIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-const BROADCAST_DELAY_MIN_MS = 1000;
-const BROADCAST_DELAY_MAX_MS = 6000;
+const BROADCAST_BATCH_SIZE = 10;
+const BROADCAST_BATCH_DELAY_MIN_MS = 300;
+const BROADCAST_BATCH_DELAY_MAX_MS = 1200;
 const PROGRESS_CHECKPOINT_EVERY = 10;
 
-function randomDelayMs(): number {
-  return BROADCAST_DELAY_MIN_MS + Math.floor(Math.random() * (BROADCAST_DELAY_MAX_MS - BROADCAST_DELAY_MIN_MS + 1));
+function randomBatchDelayMs(): number {
+  return BROADCAST_BATCH_DELAY_MIN_MS + Math.floor(Math.random() * (BROADCAST_BATCH_DELAY_MAX_MS - BROADCAST_BATCH_DELAY_MIN_MS + 1));
 }
 
 async function handleDevotionalBroadcast(env: Env, sourceText: string, messageId: string): Promise<void> {
@@ -296,7 +297,7 @@ async function handleDevotionalBroadcast(env: Env, sourceText: string, messageId
   const startedAt = Date.now();
   const stats = {
     total: targets.length,
-    dispatched: 0, // fire-and-forget: we asked Uazapi to send
+    dispatched: 0,
     failed: 0,
     lastChatid: null as string | null,
     startedAtISO: new Date(startedAt).toISOString(),
@@ -306,24 +307,27 @@ async function handleDevotionalBroadcast(env: Env, sourceText: string, messageId
   const persist = () => env.KV.put(progressKey, JSON.stringify({ ...stats, updatedAtISO: new Date().toISOString() }), { expirationTtl: 60 * 60 * 24 * 30 });
   await persist();
 
+  // Send in parallel batches so the waitUntil() promise stays pending (keeping
+  // the Worker alive) while requests are in-flight, but completes in seconds
+  // rather than minutes. Sequential delays between every send would push total
+  // wall-clock time past Cloudflare's runtime limit (~30 s on Bundled plan).
   const aiEnv = aiUazapiEnv(env);
-  for (let i = 0; i < targets.length; i++) {
-    const chatid = targets[i];
-    // Fire-and-forget — do NOT await. This keeps CPU usage per iteration
-    // minimal so we can broadcast to hundreds of contacts without hitting
-    // the Worker's CPU budget mid-run.
-    sendText(aiEnv, chatid, sourceText).catch(err => {
-      stats.failed += 1;
-      console.error(`broadcast send to ${chatid}:`, err instanceof Error ? err.message : String(err));
-    });
-    stats.dispatched += 1;
-    stats.lastChatid = chatid;
-
-    if ((i + 1) % PROGRESS_CHECKPOINT_EVERY === 0) {
-      await persist();
-    }
-    if (i < targets.length - 1) {
-      await new Promise(r => setTimeout(r, randomDelayMs()));
+  for (let i = 0; i < targets.length; i += BROADCAST_BATCH_SIZE) {
+    const batch = targets.slice(i, i + BROADCAST_BATCH_SIZE);
+    await Promise.all(batch.map(async (chatid) => {
+      try {
+        await sendText(aiEnv, chatid, sourceText);
+        stats.dispatched += 1;
+      } catch (err) {
+        stats.failed += 1;
+        console.error(`broadcast send to ${chatid}:`, err instanceof Error ? err.message : String(err));
+      }
+      stats.lastChatid = chatid;
+    }));
+    await persist();
+    // Random pause between batches so the cadence looks organic to WhatsApp.
+    if (i + BROADCAST_BATCH_SIZE < targets.length) {
+      await new Promise(r => setTimeout(r, randomBatchDelayMs()));
     }
   }
 
