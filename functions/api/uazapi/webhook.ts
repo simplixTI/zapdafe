@@ -16,6 +16,7 @@ import { sendText, sendTyping, type UazapiEnv } from '../../_shared/uazapi-send'
 import { synthesize, sendVoice, splitForVoice } from '../../_shared/voice';
 import { loadHistory, appendMessage, loadProfile, updateProfile } from '../../_shared/conversation';
 import { getPlaylistTracks, formatPlaylistForPrompt, type Track } from '../../_shared/spotify';
+import { runBroadcast } from '../../_shared/broadcast';
 
 interface UazapiWebhookMessage {
   chatid?: string;
@@ -253,75 +254,7 @@ async function handleConversation(env: Env, chatid: string, userText: string): P
   }
 }
 
-// ---------- devotional broadcast branch ----------
-
-interface ArchivedContact {
-  name: string;
-  firstMsgAt: number;
-  lastMsgAt: number;
-  msgsIn: number;
-  msgsOut: number;
-}
-
-const BROADCAST_ACTIVE_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
-
-async function handleDevotionalBroadcast(env: Env, sourceText: string, messageId: string): Promise<void> {
-  // Idempotency: if we already broadcast this messageId, skip
-  const dedupKey = `broadcast:sent:${messageId}`;
-  if (await env.KV.get(dedupKey)) return;
-  await env.KV.put(dedupKey, '1', { expirationTtl: 60 * 60 * 24 * 7 });
-
-  // Load active contacts from the archive
-  const contactsRaw = await env.KV.get('arch:contacts');
-  const optoutsRaw = await env.KV.get('optouts:list');
-  const contacts = contactsRaw ? (JSON.parse(contactsRaw) as Record<string, ArchivedContact>) : {};
-  const optouts = new Set<string>(optoutsRaw ? (JSON.parse(optoutsRaw) as string[]) : []);
-  const cutoff = Date.now() - BROADCAST_ACTIVE_WINDOW_MS;
-
-  const targets: string[] = [];
-  for (const [chatid, c] of Object.entries(contacts)) {
-    if (c.lastMsgAt < cutoff) continue;
-    if (optouts.has(phoneFromChatId(chatid))) continue;
-    targets.push(chatid);
-  }
-
-  const progressKey = `broadcast:progress:${messageId}`;
-  const startedAt = Date.now();
-  const stats = {
-    total: targets.length,
-    dispatched: 0,
-    failed: 0,
-    lastChatid: null as string | null,
-    startedAtISO: new Date(startedAt).toISOString(),
-    updatedAtISO: new Date(startedAt).toISOString(),
-    finishedAtISO: null as string | null,
-  };
-  const persist = () => env.KV.put(progressKey, JSON.stringify({ ...stats, updatedAtISO: new Date().toISOString() }), { expirationTtl: 60 * 60 * 24 * 30 });
-  await persist();
-
-  // Fire all sends simultaneously so total wall-clock time equals the slowest
-  // single Uazapi call (~2-5 s), not the sum of all calls. Sequential batches
-  // or per-message delays would push total time past the ~30 s waitUntil()
-  // wall-clock limit that Cloudflare Pages Functions enforces.
-  // Uazapi queues messages on its end, so simultaneous API calls don't mean
-  // simultaneous WhatsApp delivery.
-  const aiEnv = aiUazapiEnv(env);
-  await Promise.all(targets.map(async (chatid) => {
-    try {
-      await sendText(aiEnv, chatid, sourceText);
-      stats.dispatched += 1;
-    } catch (err) {
-      stats.failed += 1;
-      console.error(`broadcast send to ${chatid}:`, err instanceof Error ? err.message : String(err));
-    }
-    stats.lastChatid = chatid;
-  }));
-
-  stats.finishedAtISO = new Date().toISOString();
-  await persist();
-  // Legacy log key for backwards compat with any external tooling
-  await env.KV.put(`broadcast:log:${messageId}`, JSON.stringify(stats), { expirationTtl: 60 * 60 * 24 * 30 });
-}
+// ---------- devotional broadcast branch — logic lives in _shared/broadcast.ts ----------
 
 // ---------- entry ----------
 
@@ -378,7 +311,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   // Devotional broadcast branch
   if (phone === env.DEVOTIONAL_TRIGGER_PHONE) {
-    context.waitUntil(handleDevotionalBroadcast(env, text, messageId));
+    runBroadcast(env, text, messageId, context);
     return new Response(JSON.stringify({ ok: true, kind: 'broadcast' }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
