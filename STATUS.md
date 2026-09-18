@@ -1,4 +1,4 @@
-# Zapdafé — Status do Projeto (2026-09-17)
+# Zapdafé — Status do Projeto (2026-09-18)
 
 Retomada rápida: leia esse arquivo primeiro pra saber exatamente onde paramos.
 
@@ -36,7 +36,13 @@ Seções da página: Totais acumulados → Sistema (custos OpenAI + saldo Eleven
 - Scripts em `scripts/`: `parse-almeida.mjs` (extrai do PDF `bibilia.pdf`), `vectorize-bible.mjs` (batch de 100 embed + upsert)
 - Lib `functions/_shared/bible-rag.ts`: `searchBibleVerses(env, query, {limit, threshold})` — funciona no edge
 
-### 3. Webhook AI (`/api/uazapi/webhook`)
+### 3. Webhook AI (`/api/uazapi/webhook`) + Broadcast Admin
+
+**POST `/api/admin/broadcast-trigger`** — dispara devocional manualmente sem precisar do número gatilho. Body: `{ text: string }`. Auth: session cookie ou `Authorization: Bearer <ADMIN_PASSWORD>`. Útil para reenvios.
+
+**POST `/api/admin/broadcast-resume`** — endpoint interno, chamado em cadeia por cada chunk. Auth: header `x-broadcast-secret = AI_WEBHOOK_SECRET`. Não requer cookie de sessão.
+
+### 4. Webhook AI (`/api/uazapi/webhook`)
 Recebe da instância Uazapi **luxprodutora**. Fluxo:
 1. Auth via `?secret=` (query param) — Uazapi antigo não suporta custom header
 2. Ignora fromMe, isGroup, wasSentByApi, reactions, emoji-only, opt-outs
@@ -112,7 +118,7 @@ Todas marcadas como Secret / Encrypt.
 ## O que está PENDENTE
 
 1. **ElevenLabs API key errada** — usuário precisa criar uma nova em https://elevenlabs.io/app/settings/api-keys (formato `sk_...`) e atualizar `ELEVENLABS_API_KEY` no CF. Sem isso, voz cai em fallback silencioso de texto e card do admin mostra HTTP 400.
-2. **Broadcast reliability** — usuário reportou que um disparo pra 200 contatos parou depois de 10-15 msgs (antes do fix `e03b095`). Novo código tem delay random 1-6s + fire-and-forget + checkpoint em KV. Se travar de novo, migrar pra Cloudflare Queues ou chunking recursivo.
+2. **Broadcast reliability** — RESOLVIDO em 2026-09-18. Causa raiz: Cloudflare Pages Functions têm limite de ~30s de wall-clock para `waitUntil()`. Solução: encadeamento de invocações — cada chunk de 10 contatos roda em paralelo (~5s) e dispara o próximo via `POST /api/admin/broadcast-resume` (novo Worker). 221 contatos = ~23 invocações × ~5s. Ver `functions/_shared/broadcast.ts` e `functions/api/admin/broadcast-resume.ts`.
 3. **Admin ainda lê da campanha360** — as métricas de "Pessoas atendidas / Mensagens trocadas" vêm da instância antiga. Se quiser unificar, migrar `functions/api/admin/stats.ts` pra ler da luxprodutora (ou somar as duas).
 4. **RAG bíblia**: alguns versos podem diferir de contagem canônica em ±0.2% (Almeida vs KJV varia levemente). Aceitável pro uso RAG.
 
@@ -152,3 +158,6 @@ Ordem cronológica (mais recente por último — ver `git log --oneline`):
 - `fix(broadcast): delay random 1-6s + fire-and-forget + progresso em KV`
 - `feat(admin): endpoint /api/admin/broadcasts`
 - `feat(admin): cards de custo OpenAI/ElevenLabs + tabela de conversas com a IA`
+- `fix(broadcast): encadeamento de invocações — cada chunk de 10 processa em parallel e encadeia o próximo via self-fetch` (2026-09-18)
+- `feat(admin): POST /api/admin/broadcast-trigger — dispara devocional sem precisar do número gatilho`
+- `feat(auth): Authorization: Bearer <ADMIN_PASSWORD> aceito em todos os endpoints admin`
