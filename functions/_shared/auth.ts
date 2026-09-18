@@ -57,6 +57,11 @@ export async function createSession(env: Env): Promise<string> {
 }
 
 export async function isAuthed(request: Request, env: Env): Promise<boolean> {
+  // Accept Bearer token (for programmatic access) or session cookie
+  const authHeader = request.headers.get('Authorization') ?? '';
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (bearerMatch && bearerMatch[1] === env.ADMIN_PASSWORD) return true;
+
   const token = parseCookie(request.headers.get('Cookie'), SESSION_COOKIE);
   if (!token) return false;
   const record = await env.KV.get(`session:${token}`);

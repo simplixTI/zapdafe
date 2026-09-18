@@ -1,7 +1,7 @@
 // POST /api/admin/broadcast-trigger
 // Body: { text: string }
 // Triggers a devotional broadcast to all active contacts without needing the
-// WhatsApp trigger phone. Protected by the admin session middleware.
+// WhatsApp trigger phone. Auth via session cookie OR Authorization: Bearer <ADMIN_PASSWORD>.
 
 import type { Env } from '../../_shared/auth';
 import { runBroadcast } from '../../_shared/broadcast';
