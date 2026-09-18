@@ -263,15 +263,7 @@ interface ArchivedContact {
   msgsOut: number;
 }
 
-const BROADCAST_ACTIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-const BROADCAST_BATCH_SIZE = 10;
-const BROADCAST_BATCH_DELAY_MIN_MS = 300;
-const BROADCAST_BATCH_DELAY_MAX_MS = 1200;
-const PROGRESS_CHECKPOINT_EVERY = 10;
-
-function randomBatchDelayMs(): number {
-  return BROADCAST_BATCH_DELAY_MIN_MS + Math.floor(Math.random() * (BROADCAST_BATCH_DELAY_MAX_MS - BROADCAST_BATCH_DELAY_MIN_MS + 1));
-}
+const BROADCAST_ACTIVE_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
 async function handleDevotionalBroadcast(env: Env, sourceText: string, messageId: string): Promise<void> {
   // Idempotency: if we already broadcast this messageId, skip
@@ -307,29 +299,23 @@ async function handleDevotionalBroadcast(env: Env, sourceText: string, messageId
   const persist = () => env.KV.put(progressKey, JSON.stringify({ ...stats, updatedAtISO: new Date().toISOString() }), { expirationTtl: 60 * 60 * 24 * 30 });
   await persist();
 
-  // Send in parallel batches so the waitUntil() promise stays pending (keeping
-  // the Worker alive) while requests are in-flight, but completes in seconds
-  // rather than minutes. Sequential delays between every send would push total
-  // wall-clock time past Cloudflare's runtime limit (~30 s on Bundled plan).
+  // Fire all sends simultaneously so total wall-clock time equals the slowest
+  // single Uazapi call (~2-5 s), not the sum of all calls. Sequential batches
+  // or per-message delays would push total time past the ~30 s waitUntil()
+  // wall-clock limit that Cloudflare Pages Functions enforces.
+  // Uazapi queues messages on its end, so simultaneous API calls don't mean
+  // simultaneous WhatsApp delivery.
   const aiEnv = aiUazapiEnv(env);
-  for (let i = 0; i < targets.length; i += BROADCAST_BATCH_SIZE) {
-    const batch = targets.slice(i, i + BROADCAST_BATCH_SIZE);
-    await Promise.all(batch.map(async (chatid) => {
-      try {
-        await sendText(aiEnv, chatid, sourceText);
-        stats.dispatched += 1;
-      } catch (err) {
-        stats.failed += 1;
-        console.error(`broadcast send to ${chatid}:`, err instanceof Error ? err.message : String(err));
-      }
-      stats.lastChatid = chatid;
-    }));
-    await persist();
-    // Random pause between batches so the cadence looks organic to WhatsApp.
-    if (i + BROADCAST_BATCH_SIZE < targets.length) {
-      await new Promise(r => setTimeout(r, randomBatchDelayMs()));
+  await Promise.all(targets.map(async (chatid) => {
+    try {
+      await sendText(aiEnv, chatid, sourceText);
+      stats.dispatched += 1;
+    } catch (err) {
+      stats.failed += 1;
+      console.error(`broadcast send to ${chatid}:`, err instanceof Error ? err.message : String(err));
     }
-  }
+    stats.lastChatid = chatid;
+  }));
 
   stats.finishedAtISO = new Date().toISOString();
   await persist();
