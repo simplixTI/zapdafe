@@ -17,6 +17,9 @@ import { synthesize, sendVoice, splitForVoice } from '../../_shared/voice';
 import { loadHistory, appendMessage, loadProfile, updateProfile } from '../../_shared/conversation';
 import { getPlaylistTracks, formatPlaylistForPrompt, type Track } from '../../_shared/spotify';
 import { runBroadcast } from '../../_shared/broadcast';
+import { isOptedOut, addOptOut } from '../../_shared/optouts';
+import { isOptOutCommand, isOptOutIntent } from '../../_shared/intents';
+import { loadBrain, matchReply, renderResponse, type ReplyRule } from '../../_shared/rules';
 
 interface UazapiWebhookMessage {
   chatid?: string;
@@ -43,6 +46,11 @@ interface UazapiWebhookPayload {
 }
 
 const MAX_TEXT_LEN_FOR_VOICE = 450;
+
+const OPT_OUT_CONFIRMATION =
+  'Tudo bem. Não vou te enviar mais mensagens. Se um dia quiser conversar de novo, é só me chamar por aqui.';
+const OPT_OUT_NUDGE =
+  'Entendi. Se quiser parar de receber minhas mensagens, digite /sair (ou /parar) que eu confirmo na hora.';
 
 // ---------- helpers ----------
 
@@ -89,17 +97,6 @@ function extractFromMe(m: UazapiWebhookMessage): boolean {
 
 function phoneFromChatId(chatid: string): string {
   return chatid.split('@')[0];
-}
-
-async function isOptedOut(env: Env, phone: string): Promise<boolean> {
-  const raw = await env.KV.get('optouts:list');
-  if (!raw) return false;
-  try {
-    const list = JSON.parse(raw) as string[];
-    return list.includes(phone);
-  } catch {
-    return false;
-  }
 }
 
 function aiUazapiEnv(env: Env): UazapiEnv {
@@ -176,7 +173,31 @@ async function existingContactFromArchive(env: Env, chatid: string): Promise<{ n
   }
 }
 
-async function handleConversation(env: Env, chatid: string, userText: string): Promise<void> {
+async function resolveContactName(env: Env, chatid: string): Promise<string | null> {
+  const profile = await loadProfile(env, chatid);
+  if (profile.name) return profile.name;
+  const archived = await existingContactFromArchive(env, chatid);
+  return archived?.name ?? null;
+}
+
+async function handleOptOut(env: Env, chatid: string, phone: string): Promise<void> {
+  await addOptOut(env, phone);
+  await respondAsText(env, chatid, OPT_OUT_CONFIRMATION);
+}
+
+// Canned replies skip the history write on purpose: the whole point of a rule
+// is to answer without spending tokens or KV writes on an "amém".
+async function handleRuleReply(env: Env, chatid: string, rule: ReplyRule): Promise<void> {
+  const name = await resolveContactName(env, chatid);
+  await respondAsText(env, chatid, renderResponse(rule.response, name));
+}
+
+async function handleConversation(
+  env: Env,
+  chatid: string,
+  userText: string,
+  extraInstructions: string,
+): Promise<void> {
   // Typing indicator (best-effort)
   await sendTyping(aiUazapiEnv(env), chatid, 1500);
 
@@ -222,6 +243,7 @@ async function handleConversation(env: Env, chatid: string, userText: string): P
     isFirstMessage,
     contactName,
     playlistContext: formatPlaylistForPrompt(tracks),
+    extraInstructions,
   });
   const messages: ChatMessage[] = [
     { role: 'system', content: systemContent },
@@ -317,16 +339,55 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     });
   }
 
-  // Opt-out check
+  // Someone who already opted out never hears from us again
   if (await isOptedOut(env, phone)) {
     return new Response(JSON.stringify({ ok: true, kind: 'opted_out' }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
   }
 
+  // An explicit command is the only thing that actually opts someone out
+  if (isOptOutCommand(text)) {
+    context.waitUntil(
+      handleOptOut(env, chatid, phone).catch(err => {
+        console.error('opt-out error:', err instanceof Error ? err.message : String(err));
+      }),
+    );
+    return new Response(JSON.stringify({ ok: true, kind: 'opted_out_now' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Fuzzier phrasing only points at the command — never decides for the person
+  if (isOptOutIntent(text)) {
+    context.waitUntil(
+      respondAsText(env, chatid, OPT_OUT_NUDGE).catch(err => {
+        console.error('opt-out nudge error:', err instanceof Error ? err.message : String(err));
+      }),
+    );
+    return new Response(JSON.stringify({ ok: true, kind: 'opt_out_nudge' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const brain = await loadBrain(env);
+
+  // Admin-managed canned reply — answered without an LLM call
+  const rule = matchReply(brain, text);
+  if (rule) {
+    context.waitUntil(
+      handleRuleReply(env, chatid, rule).catch(err => {
+        console.error('rule reply error:', err instanceof Error ? err.message : String(err));
+      }),
+    );
+    return new Response(JSON.stringify({ ok: true, kind: 'rule_reply', ruleId: rule.id }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   // Conversation branch — run async so webhook returns fast
   context.waitUntil(
-    handleConversation(env, chatid, text).catch(err => {
+    handleConversation(env, chatid, text, brain.instructions).catch(err => {
       console.error('conversation error:', err instanceof Error ? err.message : String(err));
     }),
   );

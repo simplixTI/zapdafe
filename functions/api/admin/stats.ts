@@ -10,6 +10,7 @@ import {
   runArchive,
   type ArchivedContact,
 } from '../../_shared/archive';
+import { loadOptOutSet } from '../../_shared/optouts';
 
 interface ChatSummary {
   chatid: string;
@@ -85,16 +86,6 @@ function brasiliaStartOfDay(nowMs: number): number {
   return day * MS_DAY - TZ_OFFSET_MS;
 }
 
-async function loadOptOutsSet(env: Env): Promise<Set<string>> {
-  const raw = await env.KV.get('optouts:list');
-  if (!raw) return new Set();
-  try {
-    return new Set(JSON.parse(raw) as string[]);
-  } catch {
-    return new Set();
-  }
-}
-
 export const onRequest: PagesFunction<Env> = async (context) => {
   const env = context.env;
 
@@ -120,7 +111,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     // 3. Overlay opt-outs
-    const optOuts = await loadOptOutsSet(env);
+    const optOuts = await loadOptOutSet(env);
 
     // 4. Build the response from archive
     const now = Date.now();

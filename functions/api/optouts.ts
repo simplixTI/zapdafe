@@ -1,6 +1,5 @@
 import type { Env } from '../_shared/auth';
-
-const KEY = 'optouts:list';
+import { loadOptOuts, normalizePhone } from '../_shared/optouts';
 
 function bearerFromHeader(auth: string | null): string | null {
   if (!auth) return null;
@@ -20,11 +19,10 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   const url = new URL(context.request.url);
   const check = url.searchParams.get('phone');
 
-  const raw = await context.env.KV.get(KEY);
-  const list: string[] = raw ? (JSON.parse(raw) as string[]) : [];
+  const list = await loadOptOuts(context.env);
 
   if (check) {
-    const normalized = check.replace(/\D/g, '');
+    const normalized = normalizePhone(check);
     return new Response(
       JSON.stringify({ phone: normalized, optedOut: list.includes(normalized) }),
       { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },

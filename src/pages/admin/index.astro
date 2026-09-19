@@ -240,6 +240,58 @@ import Base from '../../layouts/Base.astro';
           </div>
         </section>
 
+        <!-- Cérebro: regras de resposta geridas pelo cliente -->
+        <section id="cerebro" aria-labelledby="cerebro-h">
+          <div class="admin-section-header">
+            <h2 id="cerebro-h" class="admin-h2">Cérebro</h2>
+          </div>
+
+          <div class="glass-card">
+            <h3 class="brain-h3">Respostas automáticas</h3>
+            <p class="brain-hint">
+              Quando a mensagem do cliente for <strong>exatamente</strong> um dos gatilhos, o Zapdafé
+              responde o texto abaixo na hora, sem passar pela IA e sem gastar token. Escreva
+              <code>{'{nome}'}</code> onde quiser o primeiro nome de quem mandou a mensagem.
+            </p>
+            <form id="rule-add" class="rule-form">
+              <input
+                type="text"
+                id="rule-triggers"
+                placeholder="Gatilhos separados por vírgula (ex: amém, amém amém)"
+                class="admin-input"
+                autocomplete="off"
+              />
+              <textarea
+                id="rule-response"
+                rows="2"
+                class="admin-input admin-textarea"
+                placeholder={`Resposta (ex: Amém, {nome}, que Deus continue abençoando você e sua família!)`}
+              ></textarea>
+              <button type="submit" class="admin-btn admin-btn-primary">Adicionar regra</button>
+            </form>
+            <div id="rule-list" class="rule-list"></div>
+          </div>
+
+          <div class="glass-card brain-card-spaced">
+            <h3 class="brain-h3">Instruções para a IA</h3>
+            <p class="brain-hint">
+              Orientações de comportamento que entram no prompt de toda conversa (ex: "se
+              perguntarem o horário do culto, responda domingo às 19h"). Não substituem o
+              acolhimento em crise nem a proibição de emoji.
+            </p>
+            <textarea
+              id="brain-instructions"
+              rows="5"
+              class="admin-input admin-textarea"
+              placeholder="Uma orientação por linha"
+            ></textarea>
+            <div class="brain-actions">
+              <button id="instructions-save" class="admin-btn admin-btn-primary">Salvar instruções</button>
+              <span id="instructions-status" class="brain-status"></span>
+            </div>
+          </div>
+        </section>
+
         <!-- Opt-outs -->
         <section id="optouts" aria-labelledby="optouts-h">
           <div class="admin-section-header">
@@ -1114,6 +1166,57 @@ import Base from '../../layouts/Base.astro';
       background: rgba(245, 239, 228, 0.08);
     }
 
+    /* ── Cérebro ─────────────────────────────────────── */
+    .brain-h3 {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #F5EFE4;
+      margin: 0 0 0.375rem;
+    }
+    .brain-hint {
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      color: rgba(245, 239, 228, 0.45);
+      margin: 0 0 1rem;
+    }
+    .brain-hint code {
+      font-family: monospace;
+      background: rgba(184, 134, 11, 0.15);
+      border-radius: 0.25rem;
+      padding: 0.0625rem 0.3125rem;
+      color: rgba(245, 239, 228, 0.8);
+    }
+    .brain-card-spaced { margin-top: 1rem; }
+    .admin-textarea { resize: vertical; line-height: 1.6; font-family: inherit; width: 100%; }
+    .rule-form { display: flex; flex-direction: column; gap: 0.625rem; margin-bottom: 1.25rem; }
+    .rule-form .admin-btn { align-self: flex-start; }
+    .rule-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .rule-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.75rem 0.875rem;
+      border-radius: 0.625rem;
+      background: rgba(245, 239, 228, 0.04);
+      border: 1px solid rgba(245, 239, 228, 0.08);
+    }
+    .rule-triggers {
+      font-family: monospace;
+      font-size: 0.8125rem;
+      color: rgba(184, 134, 11, 0.9);
+      margin-bottom: 0.25rem;
+      word-break: break-word;
+    }
+    .rule-response {
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      color: rgba(245, 239, 228, 0.75);
+      word-break: break-word;
+    }
+    .brain-actions { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; }
+    .brain-status { font-size: 0.75rem; color: rgba(245, 239, 228, 0.45); }
+
     .optout-list { display: flex; flex-direction: column; gap: 0.375rem; }
     .optout-row {
       display: flex;
@@ -1753,10 +1856,87 @@ import Base from '../../layouts/Base.astro';
       });
     }
 
+    interface ReplyRule { id: string; triggers: string[]; response: string; createdAtISO: string }
+
+    async function loadBrain() {
+      const res = await fetch('/api/admin/rules', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const data = await res.json() as { replies: ReplyRule[]; instructions: string };
+
+      (document.getElementById('brain-instructions') as HTMLTextAreaElement).value = data.instructions ?? '';
+
+      const container = document.getElementById('rule-list')!;
+      container.innerHTML = '';
+      if (!data.replies || data.replies.length === 0) {
+        container.innerHTML = '<div style="font-size:.8125rem;color:rgba(245,239,228,.35)">Nenhuma resposta automática cadastrada.</div>';
+        return;
+      }
+      data.replies.forEach(rule => {
+        const row = document.createElement('div');
+        row.className = 'rule-row';
+        row.innerHTML = `
+          <div>
+            <div class="rule-triggers">${escapeHtml(rule.triggers.join(' · '))}</div>
+            <div class="rule-response">${escapeHtml(rule.response)}</div>
+          </div>
+          <button data-id="${escapeHtml(rule.id)}" class="rule-remove admin-btn admin-btn-sm admin-btn-danger">Remover</button>`;
+        container.appendChild(row);
+      });
+      container.querySelectorAll<HTMLButtonElement>('.rule-remove').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          await fetch('/api/admin/rules', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'remove', id: btn.dataset.id }),
+          });
+          await loadBrain();
+        });
+      });
+    }
+
+    document.getElementById('rule-add')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const triggersEl = document.getElementById('rule-triggers') as HTMLInputElement;
+      const responseEl = document.getElementById('rule-response') as HTMLTextAreaElement;
+      const triggers = triggersEl.value.trim();
+      const response = responseEl.value.trim();
+      if (!triggers || !response) return;
+      const btn = (e.target as HTMLFormElement).querySelector('button')!;
+      btn.disabled = true;
+      const res = await fetch('/api/admin/rules', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add', triggers, response }),
+      });
+      btn.disabled = false;
+      if (res.ok) {
+        triggersEl.value = '';
+        responseEl.value = '';
+        await loadBrain();
+      }
+    });
+
+    document.getElementById('instructions-save')?.addEventListener('click', async () => {
+      const btn = document.getElementById('instructions-save') as HTMLButtonElement;
+      const statusEl = document.getElementById('instructions-status')!;
+      const instructions = (document.getElementById('brain-instructions') as HTMLTextAreaElement).value;
+      btn.disabled = true;
+      statusEl.textContent = 'Salvando…';
+      const res = await fetch('/api/admin/rules', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'instructions', instructions }),
+      });
+      btn.disabled = false;
+      statusEl.textContent = res.ok ? 'Salvo.' : 'Falhou ao salvar.';
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    });
+
     document.getElementById('refresh-btn')?.addEventListener('click', () => {
       const btn = document.getElementById('refresh-btn') as HTMLButtonElement;
       btn.style.opacity = '0.5';
-      Promise.all([loadStats(), loadOptOuts(), loadObservability()]).finally(() => { btn.style.opacity = ''; });
+      Promise.all([loadStats(), loadOptOuts(), loadObservability(), loadBrain()]).finally(() => { btn.style.opacity = ''; });
     });
     document.getElementById('logout-btn')?.addEventListener('click', async () => {
       await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
@@ -1782,5 +1962,6 @@ import Base from '../../layouts/Base.astro';
     loadStats();
     loadOptOuts();
     loadObservability();
+    loadBrain();
   </script>
 </Base>

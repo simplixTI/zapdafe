@@ -1,4 +1,4 @@
-// POST /api/admin/broadcast-resume?messageId=...&cursor=...
+// POST /api/admin/broadcast-resume?messageId=...&lane=...&cursor=...
 // Internal endpoint called by each broadcast chunk to trigger the next one.
 // Auth: x-broadcast-secret header must equal env.AI_WEBHOOK_SECRET.
 // Returns 200 immediately; the actual work runs via context.waitUntil().
@@ -16,12 +16,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   const url = new URL(request.url);
   const messageId = url.searchParams.get('messageId') ?? '';
+  const lane = parseInt(url.searchParams.get('lane') ?? '0', 10);
   const cursor = parseInt(url.searchParams.get('cursor') ?? '0', 10);
 
-  if (!messageId) {
-    return new Response('missing messageId', { status: 400 });
+  if (!messageId || Number.isNaN(lane) || Number.isNaN(cursor)) {
+    return new Response('missing messageId, lane or cursor', { status: 400 });
   }
 
-  context.waitUntil(runChunk(env, messageId, cursor, context));
+  context.waitUntil(runChunk(env, messageId, lane, cursor, context));
   return new Response('ok');
 };

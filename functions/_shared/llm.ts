@@ -55,6 +55,7 @@ interface PromptOptions {
   isFirstMessage: boolean;
   contactName?: string | null;
   playlistContext?: string | null;
+  extraInstructions?: string | null;
 }
 
 /**
@@ -71,6 +72,7 @@ export function buildSystemPrompt({
   isFirstMessage,
   contactName,
   playlistContext,
+  extraInstructions,
 }: PromptOptions): string {
   const base = `Você é o Zapdafé, um companheiro carinhoso que conversa por WhatsApp com pessoas que buscam conforto, escuta e direção espiritual.
 
@@ -129,7 +131,16 @@ ${playlistContext}`
 
 Você NÃO tem playlist disponível agora. NÃO indique nenhuma música — nem por nome, nem por link, nem sugira "tem uma música que…". Se a pessoa pedir, diga com carinho que ainda não consegue mandar músicas nesse momento.`;
 
-  return base + openingRule + bibleBlock + musicBlock;
+  const instructionsBlock = extraInstructions?.trim()
+    ? `
+
+ORIENTAÇÕES ADICIONAIS DEFINIDAS PELO RESPONSÁVEL PELO ZAPDAFÉ (siga com atenção):
+${extraInstructions.trim()}
+
+Essas orientações NUNCA substituem as regras acima sobre emojis, acolhimento em crise (CVV 188) e indicação de música só da playlist.`
+    : '';
+
+  return base + openingRule + bibleBlock + musicBlock + instructionsBlock;
 }
 
 /**

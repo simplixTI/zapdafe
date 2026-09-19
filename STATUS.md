@@ -1,4 +1,4 @@
-# Zapdafé — Status do Projeto (2026-09-18)
+# Zapdafé — Status do Projeto (2026-09-19)
 
 Retomada rápida: leia esse arquivo primeiro pra saber exatamente onde paramos.
 
@@ -63,10 +63,29 @@ Recebe da instância Uazapi **luxprodutora**. Fluxo:
 
 **Broadcast branch:**
 - Dedupe via `broadcast:sent:<messageId>` (evita re-entrega do Uazapi)
-- Alvos: contatos com `lastMsgAt <30d` E não-optout, lidos do `arch:contacts`
-- Envio fire-and-forget (não bloqueia CPU) com delay random 1-6s
-- Checkpoint em `broadcast:progress:<messageId>` a cada 10 envios
-- Log final em `broadcast:log:<messageId>` (compat com formato antigo)
+- Alvos: contatos com `lastMsgAt <90d` E não-optout, lidos do `arch:contacts`
+- **Faixas paralelas** (`LANES = 3`): a lista é dividida em 3 fatias contíguas, cada uma com sua própria cadeia de chunks de 10. Progresso por faixa em `broadcast:lane:<messageId>:<lane>`, somado na leitura por `/api/admin/broadcasts`
+- Falha de encadeamento agora fica gravada (`chainError`/`chainErrorAtISO`) em vez de morrer em silêncio
+
+**Limites da Cloudflare que definem esse desenho** (medidos no disparo de 2026-09-19):
+- 6 conexões simultâneas por invocação → chunk de 10 = 2 ondas ≈ 17s
+- `waitUntil()` ≈ 30s → é o que cada chunk precisa caber
+- **16 invocações Worker→Worker por cadeia** (header `CF-EW-Via`, erro 1019) → foi o que matou o disparo em exatamente 160/221
+- Teto do desenho atual: `LANES × 16 × CHUNK_SIZE` = **480 contatos**. Passar disso exige subir `LANES` ou migrar pro Worker com cron/Queue
+
+**Respostas rápidas (antes de chamar a IA), na ordem:**
+1. Já é opt-out → silêncio total
+2. Comando `/sair` ou `/parar` (com ou sem barra) → entra na lista de opt-out + confirmação fixa
+3. Linguagem ambígua de saída ("não quero mais receber", "descadastra") → **não** opta sozinho, só orienta a digitar o comando
+4. Regra do cérebro (gatilho exato) → resposta fixa, sem gastar token
+5. Nada disso → conversa normal com a IA
+
+### 5. Cérebro — regras geridas pelo cliente no `/admin`
+Seção "Cérebro" no painel, guardada em `rules:brain` no KV. Duas partes:
+- **Respostas automáticas**: gatilho (mensagem inteira, ignorando acento/caixa/pontuação) → resposta fixa. Aceita `{nome}`, que vira o primeiro nome do contato (sem nome, o placeholder e a vírgula somem). Já vem semeada com a regra do "amém"
+- **Instruções para a IA**: texto livre que entra no system prompt de toda conversa. Não sobrescreve as regras de emoji, crise (CVV 188) ou música só da playlist
+
+Endpoint: `GET/POST /api/admin/rules` (`action`: `add` | `remove` | `instructions`).
 
 ### 4. Spotify (playlist "fenozap")
 - Playlist ID: `1gIgyuj2MUkK8TsLHJtqRo` (69 tracks, playlist do cliente)
@@ -118,8 +137,8 @@ Todas marcadas como Secret / Encrypt.
 ## O que está PENDENTE
 
 1. **ElevenLabs API key errada** — usuário precisa criar uma nova em https://elevenlabs.io/app/settings/api-keys (formato `sk_...`) e atualizar `ELEVENLABS_API_KEY` no CF. Sem isso, voz cai em fallback silencioso de texto e card do admin mostra HTTP 400.
-2. **Broadcast reliability** — RESOLVIDO em 2026-09-18. Causa raiz: Cloudflare Pages Functions têm limite de ~30s de wall-clock para `waitUntil()`. Solução: encadeamento de invocações — cada chunk de 10 contatos roda em paralelo (~5s) e dispara o próximo via `POST /api/admin/broadcast-resume` (novo Worker). 221 contatos = ~23 invocações × ~5s. Ver `functions/_shared/broadcast.ts` e `functions/api/admin/broadcast-resume.ts`.
-3. **Admin ainda lê da campanha360** — as métricas de "Pessoas atendidas / Mensagens trocadas" vêm da instância antiga. Se quiser unificar, migrar `functions/api/admin/stats.ts` pra ler da luxprodutora (ou somar as duas).
+2. **Broadcast reliability** — 2ª iteração em 2026-09-19, **ainda não validada em produção**. O encadeamento linear de 2026-09-18 resolveu o teto dos 30s mas esbarrou no limite de 16 hops: o disparo das 13:51Z parou em 160/221, deixando 61 pessoas sem o devocional (não foram reenviadas — decisão de 2026-09-19 foi deixar assim e esperar o próximo). Agora são 3 faixas paralelas de ~74 contatos, 8 hops cada. **Validar no disparo de 2026-09-20**: conferir em `/api/admin/broadcasts` se `finishedAtISO` foi preenchido, se `dispatched + failed == total` e se `failed` continua 0 — as 3 faixas triplicam a taxa de envio simultâneo pra Uazapi (≈18 conexões contra 6 antes), então um `failed > 0` pode indicar rate limit.
+3. **Admin ainda lê da campanha360** — PRÓXIMA TAREFA (pedido de 2026-09-19): deixar só a luxprodutora daqui pra frente e, se der, puxar todos os contatos ativos direto do WhatsApp que está online (221 hoje). As métricas de "Pessoas atendidas / Mensagens trocadas" ainda vêm da instância antiga: migrar `functions/api/admin/stats.ts` pra ler da luxprodutora.
 4. **RAG bíblia**: alguns versos podem diferir de contagem canônica em ±0.2% (Almeida vs KJV varia levemente). Aceitável pro uso RAG.
 
 ## Comandos úteis
