@@ -20,6 +20,7 @@ import { runBroadcast } from '../../_shared/broadcast';
 import { isOptedOut, addOptOut } from '../../_shared/optouts';
 import { isOptOutCommand, isOptOutIntent } from '../../_shared/intents';
 import { loadBrain, matchReply, renderResponse, type ReplyRule } from '../../_shared/rules';
+import { plausibleFirstName } from '../../_shared/names';
 
 interface UazapiWebhookMessage {
   chatid?: string;
@@ -162,20 +163,20 @@ async function existingContactFromArchive(env: Env, chatid: string): Promise<{ n
   if (!raw) return null;
   try {
     const contacts = JSON.parse(raw) as Record<string, { name?: string }>;
-    const c = contacts[chatid];
-    if (!c) return null;
-    const name = c.name?.trim();
-    // Skip if name is empty or just phone digits
-    if (!name || /^\d+$/.test(name)) return null;
-    return { name: name.split(/\s+/)[0] }; // first name only
+    const name = plausibleFirstName(contacts[chatid]?.name);
+    return name ? { name } : null;
   } catch {
     return null;
   }
 }
 
+// Validated on read, not just on write: profiles saved before this guard
+// existed still hold junk like "Sou", and re-checking here retires them
+// without a migration — the assistant just asks for the name again.
 async function resolveContactName(env: Env, chatid: string): Promise<string | null> {
   const profile = await loadProfile(env, chatid);
-  if (profile.name) return profile.name;
+  const stored = plausibleFirstName(profile.name);
+  if (stored) return stored;
   const archived = await existingContactFromArchive(env, chatid);
   return archived?.name ?? null;
 }
@@ -209,7 +210,7 @@ async function handleConversation(
     getPlaylistTracks(env),
   ]);
 
-  let contactName = profile.name ?? null;
+  let contactName = plausibleFirstName(profile.name);
 
   // If we have no local history AND no profile, check whether this person
   // already exists in the archive (i.e., they talked to us via the previous
@@ -229,7 +230,8 @@ async function handleConversation(
   // answering our earlier "qual seu nome?"). Best-effort — never blocks.
   if (!contactName && !treatAsFirstMessage) {
     try {
-      const extracted = await extractName(env, userText);
+      // The extractor happily returns "Sou" for "eu sou sozinha" — same guard applies
+      const extracted = plausibleFirstName(await extractName(env, userText));
       if (extracted) {
         contactName = extracted;
         await updateProfile(env, chatid, { name: extracted });
