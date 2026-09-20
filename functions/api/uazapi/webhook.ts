@@ -20,7 +20,7 @@ import { runBroadcast } from '../../_shared/broadcast';
 import { isOptedOut, addOptOut } from '../../_shared/optouts';
 import { isOptOutCommand, isOptOutIntent } from '../../_shared/intents';
 import { loadBrain, matchReply, renderResponse, type ReplyRule } from '../../_shared/rules';
-import { plausibleFirstName } from '../../_shared/names';
+import { plausibleFirstName, namedAsSomeoneElse } from '../../_shared/names';
 
 interface UazapiWebhookMessage {
   chatid?: string;
@@ -230,9 +230,12 @@ async function handleConversation(
   // answering our earlier "qual seu nome?"). Best-effort — never blocks.
   if (!contactName && !treatAsFirstMessage) {
     try {
-      // The extractor happily returns "Sou" for "eu sou sozinha" — same guard applies
+      // O extrator devolve "Sou" para "eu sou sozinha" e "Everaldo" para
+      // "Oi Pastor Everaldo" — a mesma trava vale, mais a checagem de vocativo
       const extracted = plausibleFirstName(await extractName(env, userText));
-      if (extracted) {
+      if (extracted && namedAsSomeoneElse(userText, extracted)) {
+        console.log(`nome "${extracted}" ignorado: aparece como vocativo em "${userText.slice(0, 80)}"`);
+      } else if (extracted) {
         contactName = extracted;
         await updateProfile(env, chatid, { name: extracted });
       }

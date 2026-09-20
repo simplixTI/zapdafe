@@ -1,4 +1,4 @@
-# Zapdafé — Status do Projeto (2026-09-19)
+# Zapdafé — Status do Projeto (2026-09-20)
 
 Retomada rápida: leia esse arquivo primeiro pra saber exatamente onde paramos.
 
@@ -103,6 +103,15 @@ Como funciona: remove emoji, símbolos e o `~` que o WhatsApp prefixa; pega a pr
 
 Cuidado ao mexer: a primeira versão da trava rejeitava o nome inteiro ao encontrar emoji, o que tirava o nome de `Drika 🦋` e `Vitória 🌻`, que são nomes legítimos com enfeite. Emoji não é sinal de nome ruim — a palavra é.
 
+**Segundo incidente, 2026-09-20 — "Pastor Everaldo".** O contato `+55 22 99822-5733` escreveu "Oi Pastor Everaldo, gostaria de receber as mensagens" e o `extractName` gravou "Everaldo" como nome dele. O nome verdadeiro é **Toninho**. Diferente do caso "Sou", aqui "Everaldo" é um nome perfeitamente válido, então a trava de palavras não pegava. Como o projeto é conhecido pelo nome do pastor, é provável que vários perfis tenham sido contaminados do mesmo jeito.
+
+Três camadas resolvem:
+1. `OWN_NAMES` — "everaldo" e "zapdafe" nunca são aceitos como nome de contato. Custo assumido: um contato realmente chamado Everaldo perde o nome, o que é bem melhor que chamar todo mundo de Everaldo
+2. `namedAsSomeoneElse(texto, nome)` — rejeita nome que aparece depois de cumprimento ou título ("Oi Pastor X", "bom dia Maria", "pelo pastor Carlos"). Não dispara em apresentação real ("Oi, meu nome é Toninho")
+3. Prompt do `extractName` reescrito, deixando explícito que queremos o nome de QUEM ESCREVEU e dando exemplos de vocativo que devem devolver NENHUM
+
+**Regra de identidade** (2026-09-20, definida pelo cliente): quem escreve "Pastor Everaldo" está, na prática, falando com o **Zap da Fé**, que é apadrinhado por ele. O system prompt agora diz isso: a IA acolhe o cumprimento com naturalidade, **nunca se passa pelo pastor**, e se perguntarem diretamente explica com carinho que ali é o Zapdafé, o canal de fé dele.
+
 ### 7. Spotify (playlist "fenozap")
 - Playlist ID: `1gIgyuj2MUkK8TsLHJtqRo` (69 tracks, playlist do cliente)
 - **Não usa credenciais Spotify** — Web API bloqueou client-credentials pra playlists de usuário em nov/2024. Uso o embed público (`/embed/playlist/<id>`) e faço parse do `trackList` do HTML
@@ -154,12 +163,22 @@ Todas marcadas como Secret / Encrypt.
 ## O que está PENDENTE
 
 1. **ElevenLabs API key errada** — usuário precisa criar uma nova em https://elevenlabs.io/app/settings/api-keys (formato `sk_...`) e atualizar `ELEVENLABS_API_KEY` no CF. Sem isso, voz cai em fallback de texto (resposta longa chega picotada em várias mensagens) e o card do admin mostra HTTP 400. ⚠️ **Não é problema de saldo** — em 2026-09-19 o cliente foi colocar mais saldo achando que era isso; com a chave errada o 400 continua mesmo com a conta cheia. Conferir se o valor começa com `sk_`.
-2. **Broadcast reliability** — 2ª iteração em 2026-09-19, **ainda não validada em produção**. O encadeamento linear de 2026-09-18 resolveu o teto dos 30s mas esbarrou no limite de 16 hops: o disparo das 13:51Z parou em 160/221, deixando 61 pessoas sem o devocional (não foram reenviadas — decisão de 2026-09-19 foi deixar assim e esperar o próximo). Agora são 3 faixas paralelas de ~74 contatos, 8 hops cada. **Validar no disparo de 2026-09-20**: conferir em `/api/admin/broadcasts` se `finishedAtISO` foi preenchido, se `dispatched + failed == total` e se `failed` continua 0 — as 3 faixas triplicam a taxa de envio simultâneo pra Uazapi (≈18 conexões contra 6 antes), então um `failed > 0` pode indicar rate limit.
+2. **Broadcast reliability — AINDA QUEBRADO, e é a pendência mais urgente.** Histórico dos três desenhos:
+   - **2026-09-18**, tudo num `waitUntil`: morreu no teto de 30s, 20/221 entregues
+   - **2026-09-19**, cadeia linear de chunks: morreu no limite de 16 hops, 160/221 entregues (61 sem receber)
+   - **2026-09-20**, 3 faixas paralelas: **74/221 entregues (147 sem receber)**. A faixa 0 rodou perfeita (74/74, zero falhas, 107s). As faixas 1 e 2 **nunca enviaram nada** — `updatedAtISO` igual ao `startedAtISO`, cursor parado no início, e nenhum `chainError`
+
+   **Causa do de hoje: KV é eventualmente consistente.** O worker do setup grava job e faixas no KV e dispara as faixas 1 e 2 em workers novos no mesmo segundo. Esses workers leem os registros de volta, recebem `null`, e o `runChunk` sai no `if (!jobRaw || !laneRaw) return;` — em silêncio. A faixa 0 escapou porque rodou dentro do mesmo worker que escreveu (lê a própria escrita) e só encadeou 13s depois. Agravante: o `recordChainError` também lê o registro antes de gravar, com o mesmo `if (!raw) return`, então uma falha real também sairia silenciosa.
+
+   Lição: os testes de faixa passaram em 9 cenários com KV falso, onde escrita e leitura são instantâneas — justamente o comportamento que importava não estava modelado.
+
+   **Desenho decidido (ideia do cliente, 2026-09-20): 3 grupos com 10 minutos de intervalo, num Worker separado com Cron Trigger.** Não dá pra fazer no Pages Functions porque não existe como esperar 10 minutos ali (`waitUntil` tem teto de 30s — é essa limitação que gerou o encadeamento, que gerou o limite de hops, que gerou as faixas, que gerou a corrida com o KV). Cron Trigger tem **15 minutos de execução** e 30s de CPU (envio é espera de rede, quase não gasta CPU), então um grupo de 74 contatos (~107s) cabe folgado. O webhook só grava o trabalho no KV e responde; o Worker acorda de 5 em 5 minutos, vê se chegou a hora do próximo grupo, envia e agenda o seguinte. Some o encadeamento, some o limite de 16 hops, some a corrida (o cron roda minutos depois da escrita) e some o pico de 18 conexões. Custo: segundo alvo de deploy, `wrangler login` ou deploy no CI. **Ainda não implementado.**
 3. **Admin ainda lê da campanha360** — PRÓXIMA TAREFA (pedido de 2026-09-19): deixar só a luxprodutora daqui pra frente e, se der, puxar todos os contatos ativos direto do WhatsApp que está online (221 hoje). As métricas de "Pessoas atendidas / Mensagens trocadas" ainda vêm da instância antiga: migrar `functions/api/admin/stats.ts` pra ler da luxprodutora.
 4. **RAG bíblia**: alguns versos podem diferir de contagem canônica em ±0.2% (Almeida vs KJV varia levemente). Aceitável pro uso RAG.
-5. **Cleonice (`+55 49 99820-8611`) vai ser perguntada pelo nome de novo** — a trava descarta o "Sou" salvo, mas não sabe que ela se chama Cleonice (isso ficou no sistema antigo). Duas opções: deixar a IA perguntar naturalmente, ou criar um jeito de editar o nome de um contato pelo `/admin` (não existe hoje). Vale lembrar que ela contou coisas pesadas — AVC há 4 anos, não sai de casa, traída pelo marido, sem ninguém pra conversar — e teve que repetir tudo em 19/09 porque a IA não tinha o histórico. Um retorno humano pra ela faz diferença.
-6. **Sem memória entre o sistema antigo e a IA nova** — o `conv:<chatid>` guarda 12 turnos com TTL de 30 dias e não herdou nada do fluxo Bubble/n8n. Na prática o contato reconta a história toda, e a IA dá conselho descontextualizado (sugeriu "busque apoio de amigos ou familiares" pra quem já tinha dito que não tem ninguém). Sem solução definida.
-7. **Prompt não tem regra para afirmação grandiosa/delirante** — só cobre autoextermínio, violência e urgência médica. Alguém dizendo "eu sou Deus" pode ser provocação (comum) ou sintoma clínico de episódio maníaco/psicótico, e um companheiro que cita Bíblia com carinho corre o risco de reforçar delírio. Ainda não escrito porque o caso que motivou a dúvida acabou sendo o bug do nome, não um contato real dizendo isso.
+5. **Não há como corrigir o nome de um contato pelo painel** — já apareceram dois casos (Cleonice salva como "Sou", Toninho salvo como "Everaldo"). A trava descarta o nome errado na leitura e a IA pergunta de novo, mas quando já se sabe o nome certo não existe onde digitar. Vale um campo no `/admin`.
+6. **Cleonice (`+55 49 99820-8611`) vai ser perguntada pelo nome de novo** — a trava descarta o "Sou" salvo, mas não sabe que ela se chama Cleonice (isso ficou no sistema antigo). Duas opções: deixar a IA perguntar naturalmente, ou criar um jeito de editar o nome de um contato pelo `/admin` (não existe hoje). Vale lembrar que ela contou coisas pesadas — AVC há 4 anos, não sai de casa, traída pelo marido, sem ninguém pra conversar — e teve que repetir tudo em 19/09 porque a IA não tinha o histórico. Um retorno humano pra ela faz diferença.
+7. **Sem memória entre o sistema antigo e a IA nova** — o `conv:<chatid>` guarda 12 turnos com TTL de 30 dias e não herdou nada do fluxo Bubble/n8n. Na prática o contato reconta a história toda, e a IA dá conselho descontextualizado (sugeriu "busque apoio de amigos ou familiares" pra quem já tinha dito que não tem ninguém). Sem solução definida.
+8. **Prompt não tem regra para afirmação grandiosa/delirante** — só cobre autoextermínio, violência e urgência médica. Alguém dizendo "eu sou Deus" pode ser provocação (comum) ou sintoma clínico de episódio maníaco/psicótico, e um companheiro que cita Bíblia com carinho corre o risco de reforçar delírio. Ainda não escrito porque o caso que motivou a dúvida acabou sendo o bug do nome, não um contato real dizendo isso.
 
 ## Comandos úteis
 

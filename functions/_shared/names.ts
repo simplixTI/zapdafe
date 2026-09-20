@@ -25,7 +25,39 @@ const NOT_NAMES = new Set([
   'grupo', 'adm', 'admin', 'equipe', 'suporte', 'vendas', 'oficial', 'nenhum',
 ]);
 
+// Nomes do nosso lado do balcão. As pessoas cumprimentam o pastor pelo nome
+// ("Oi Pastor Everaldo, gostaria de receber as mensagens"), e o extrator lia
+// isso como apresentação do próprio contato — o +55 22 99822-5733, que se chama
+// Toninho, virou "Everaldo". Um contato realmente chamado Everaldo perde o
+// nome por isso, o que é bem menos ruim do que chamar todo mundo de Everaldo.
+const OWN_NAMES = new Set(['everaldo', 'zapdafe']);
+
 const LETTERS_ONLY = /^[\p{L}][\p{L}'-]*$/u;
+
+const GREETINGS = 'oi|ola|opa|bom dia|boa tarde|boa noite|fala|e ai|salve|paz do senhor|paz';
+const TITLES = 'pastor|pastora|pr|pra|padre|bispo|reverendo|irmao|irma|missionario|missionaria|diacono|profeta|apostolo|dona|seu|sr|sra';
+
+function escapeForRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * True when `name` appears in `text` as someone being addressed or referred to,
+ * rather than the sender introducing themselves — "Oi Pastor Everaldo" and
+ * "bom dia Everaldo" are greetings aimed at a third party.
+ */
+export function namedAsSomeoneElse(text: string, name: string): boolean {
+  const haystack = normalizeText(text);
+  const needle = escapeForRegex(normalizeText(name));
+  if (!haystack || !needle) return false;
+
+  // Cumprimento (com título opcional) seguido direto do nome
+  const afterGreeting = new RegExp(`\\b(?:${GREETINGS})\\b[\\s,!]*(?:(?:${TITLES})\\b[\\s,!]*)?${needle}\\b`);
+  // Título colado no nome em qualquer posição: "com o pastor Everaldo"
+  const afterTitle = new RegExp(`\\b(?:${TITLES})\\b[\\s,!]*${needle}\\b`);
+
+  return afterGreeting.test(haystack) || afterTitle.test(haystack);
+}
 
 /**
  * Returns a usable first name, or null when the input cannot be trusted as one.
@@ -48,7 +80,8 @@ export function plausibleFirstName(raw: string | null | undefined): string | nul
   const cleaned = first.replace(/[^\p{L}'-]/gu, '');
   if (cleaned.length < 2 || cleaned.length > 20) return null;
   if (!LETTERS_ONLY.test(cleaned)) return null;
-  if (NOT_NAMES.has(normalizeText(cleaned))) return null;
+  const normalized = normalizeText(cleaned);
+  if (NOT_NAMES.has(normalized) || OWN_NAMES.has(normalized)) return null;
 
   return cleaned
     .toLowerCase()
