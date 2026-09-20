@@ -20,12 +20,15 @@ Zapdafé é um companheiro cristão via WhatsApp: recebe mensagens, responde com
 ### 1. Admin dashboard (`/admin`, `/admin-login`)
 Redesign completo com skeleton loading, sparklines de 30d das métricas totais, contagem animada, deltas hoje vs ontem, avatars hue-hash por chatid, live-dot pulsante, tabular numerals, custom scrollbar/selection, etc.
 
-Seções da página: Totais acumulados → Sistema (custos OpenAI + saldo ElevenLabs) → Por período → Conversas com a IA → Picos por horário → Últimas atividades → Opt-outs.
+Seções da página: Totais acumulados → Sistema (custos OpenAI + saldo ElevenLabs) → Por período → Conversas com a IA → Picos por horário → Cérebro → Opt-outs.
+
+A seção "Últimas atividades" foi removida em 2026-09-19 a pedido do cliente. Junto com ela saiu o botão "Marcar opt-out" por contato, que só existia naquela tabela — hoje só dá pra marcar opt-out digitando o número na seção Opt-outs. `/api/admin/stats` continua devolvendo o campo `recent`, que ninguém mais consome.
 
 - Login: senha em `ADMIN_PASSWORD`, sessão cookie httpOnly 7d
 - Endpoints `/api/admin/*` protegidos pelo middleware
 - `/api/admin/stats` — métricas Uazapi da instância **campanha360** (número antigo, ainda usado pra métricas)
 - `/api/admin/optouts` — CRUD da lista de números opt-out
+- `/api/admin/rules` — CRUD do cérebro (respostas automáticas + instruções da IA)
 - `/api/admin/observability` — custo OpenAI (tokens contados dos usage returns), saldo ElevenLabs (via /v1/user), conversas recentes
 - `/api/admin/broadcasts` — lista disparos do devocional com progresso
 
@@ -36,30 +39,31 @@ Seções da página: Totais acumulados → Sistema (custos OpenAI + saldo Eleven
 - Scripts em `scripts/`: `parse-almeida.mjs` (extrai do PDF `bibilia.pdf`), `vectorize-bible.mjs` (batch de 100 embed + upsert)
 - Lib `functions/_shared/bible-rag.ts`: `searchBibleVerses(env, query, {limit, threshold})` — funciona no edge
 
-### 3. Webhook AI (`/api/uazapi/webhook`) + Broadcast Admin
+### 3. Endpoints de disparo do devocional
 
 **POST `/api/admin/broadcast-trigger`** — dispara devocional manualmente sem precisar do número gatilho. Body: `{ text: string }`. Auth: session cookie ou `Authorization: Bearer <ADMIN_PASSWORD>`. Útil para reenvios.
 
-**POST `/api/admin/broadcast-resume`** — endpoint interno, chamado em cadeia por cada chunk. Auth: header `x-broadcast-secret = AI_WEBHOOK_SECRET`. Não requer cookie de sessão.
+**POST `/api/admin/broadcast-resume?messageId=...&lane=...&cursor=...`** — endpoint interno, chamado em cadeia por cada chunk. Auth: header `x-broadcast-secret = AI_WEBHOOK_SECRET`. Não requer cookie de sessão. Serve também para **retomar um disparo que morreu no meio**, sem reenviar pra quem já recebeu — foi o que se cogitou fazer em 19/09 com os 61 restantes (o `broadcast:job:` guarda os alvos por 24h).
 
 ### 4. Webhook AI (`/api/uazapi/webhook`)
 Recebe da instância Uazapi **luxprodutora**. Fluxo:
 1. Auth via `?secret=` (query param) — Uazapi antigo não suporta custom header
-2. Ignora fromMe, isGroup, wasSentByApi, reactions, emoji-only, opt-outs
+2. Ignora fromMe, isGroup, wasSentByApi, reactions, emoji-only
 3. Se sender = `DEVOTIONAL_TRIGGER_PHONE` → broadcast
-4. Senão → conversation
+4. Senão → camada de respostas rápidas (ver abaixo) e, se nada casar, conversation
 
 **Conversation branch:**
 - Carrega histórico (`conv:<chatid>`) — últimas 12 turns
 - Carrega perfil (`contact:<chatid>`) — nome, first/lastSeen
 - Se contato não tem perfil, checa `arch:contacts` (do admin) — herda nome de retornante
+- **Todo nome passa por `plausibleFirstName`** antes de ser usado (ver "Validação do nome")
 - Busca RAG (top 3, threshold 0.32)
 - Busca playlist Spotify (cache 7d em `spotify:playlist:*`)
 - Monta system prompt com 3 modos: primeira msg (apresenta + pede nome), retornante c/ nome, retornante s/ nome
 - Regras rígidas no prompt: sem emoji nunca, sem reação, música SÓ da playlist Zapdafé
 - GPT-4o-mini responde
 - Se resposta tem link Spotify: separa em 2 mensagens (texto + link) pra WhatsApp renderizar cartão
-- Se resposta >450 chars: TTS ElevenLabs em blocos por frase, fallback pra texto
+- Se resposta >450 chars: TTS ElevenLabs em blocos por frase. **Se o TTS falhar, cada bloco vira uma mensagem de texto separada** — é por isso que, com a chave do ElevenLabs quebrada, a resposta longa chega picotada no WhatsApp, às vezes com pedaço começando em minúscula (o splitter corta em todo ponto final, inclusive dentro de aspas)
 
 **Broadcast branch:**
 - Dedupe via `broadcast:sent:<messageId>` (evita re-entrega do Uazapi)
@@ -87,7 +91,19 @@ Seção "Cérebro" no painel, guardada em `rules:brain` no KV. Duas partes:
 
 Endpoint: `GET/POST /api/admin/rules` (`action`: `add` | `remove` | `instructions`).
 
-### 4. Spotify (playlist "fenozap")
+### 6. Validação do nome do contato (`functions/_shared/names.ts`)
+
+`plausibleFirstName(raw)` devolve um primeiro nome confiável ou `null`. Usado nos **quatro** pontos onde um nome entra: `arch:contacts`, perfil salvo, extração pelo LLM (`extractName`) e resposta por regra do cérebro.
+
+Como funciona: remove emoji, símbolos e o `~` que o WhatsApp prefixa; pega a primeira palavra; rejeita se tiver menos de 2 ou mais de 20 letras, se não for só letras, ou se estiver na lista de não-nomes (`sou`, `eu`, `deus`, `dona`, `pastor`, `vendas`, `contato`…). Hífen é preservado, então "Ana-Clara" continua inteiro.
+
+**Roda na leitura, não só na gravação** — de propósito. Perfis gravados antes dessa trava ainda têm lixo salvo, e revalidar na leitura aposenta esses registros sem migração: a IA simplesmente volta a perguntar o nome.
+
+**Por que existe** (incidente de 2026-09-19): a contato `+55 49 99820-8611` tem nome de exibição `~Sou Eu 🌞`. O código pegava `name.split(/\s+/)[0]` e gravava "Sou" como primeiro nome dela. A IA passou a usar "Sou" como vocativo e, ao responder "Deus é bom o tempo todo" com "realmente, sou.", pareceu estar **afirmando ser Deus**. A segunda ocorrência ("isso é muito doloroso, sou.") confirmou que era vocativo, não teologia. O nome verdadeiro dela é **Cleonice** — informado em 03/09 ao sistema antigo, que não migrou.
+
+Cuidado ao mexer: a primeira versão da trava rejeitava o nome inteiro ao encontrar emoji, o que tirava o nome de `Drika 🦋` e `Vitória 🌻`, que são nomes legítimos com enfeite. Emoji não é sinal de nome ruim — a palavra é.
+
+### 7. Spotify (playlist "fenozap")
 - Playlist ID: `1gIgyuj2MUkK8TsLHJtqRo` (69 tracks, playlist do cliente)
 - **Não usa credenciais Spotify** — Web API bloqueou client-credentials pra playlists de usuário em nov/2024. Uso o embed público (`/embed/playlist/<id>`) e faço parse do `trackList` do HTML
 - Cache em KV por 7d
@@ -126,6 +142,7 @@ Todas marcadas como Secret / Encrypt.
 
 - Tom: **companheiro carinhoso, parceiro**, português BR contemporâneo, frases curtas
 - Nunca emoji, nunca reação, nunca CAPS
+- **Ortografia correta, toda frase começando com maiúscula.** Regra adicionada em 2026-09-19: o prompt só dizia "não escreve em CAIXA ALTA" e, somado a "sem formalidade excessiva", o GPT-4o-mini passou a responder tudo em minúsculas ("sinto muito que você esteja sentindo essa dor."). Agora o prompt separa explicitamente as duas coisas — informal é o tom, não a grafia
 - Bíblia como ferramenta de conforto — primeiro escuta, valida sentimento, só então (se fizer sentido) traz um verso com contexto e ternura
 - Se crise séria (autoextermínio, violência, urgência) → acolhe + CVV 188 ou 190/192
 - Se não sabe, diz que não sabe
@@ -136,10 +153,13 @@ Todas marcadas como Secret / Encrypt.
 
 ## O que está PENDENTE
 
-1. **ElevenLabs API key errada** — usuário precisa criar uma nova em https://elevenlabs.io/app/settings/api-keys (formato `sk_...`) e atualizar `ELEVENLABS_API_KEY` no CF. Sem isso, voz cai em fallback silencioso de texto e card do admin mostra HTTP 400.
+1. **ElevenLabs API key errada** — usuário precisa criar uma nova em https://elevenlabs.io/app/settings/api-keys (formato `sk_...`) e atualizar `ELEVENLABS_API_KEY` no CF. Sem isso, voz cai em fallback de texto (resposta longa chega picotada em várias mensagens) e o card do admin mostra HTTP 400. ⚠️ **Não é problema de saldo** — em 2026-09-19 o cliente foi colocar mais saldo achando que era isso; com a chave errada o 400 continua mesmo com a conta cheia. Conferir se o valor começa com `sk_`.
 2. **Broadcast reliability** — 2ª iteração em 2026-09-19, **ainda não validada em produção**. O encadeamento linear de 2026-09-18 resolveu o teto dos 30s mas esbarrou no limite de 16 hops: o disparo das 13:51Z parou em 160/221, deixando 61 pessoas sem o devocional (não foram reenviadas — decisão de 2026-09-19 foi deixar assim e esperar o próximo). Agora são 3 faixas paralelas de ~74 contatos, 8 hops cada. **Validar no disparo de 2026-09-20**: conferir em `/api/admin/broadcasts` se `finishedAtISO` foi preenchido, se `dispatched + failed == total` e se `failed` continua 0 — as 3 faixas triplicam a taxa de envio simultâneo pra Uazapi (≈18 conexões contra 6 antes), então um `failed > 0` pode indicar rate limit.
 3. **Admin ainda lê da campanha360** — PRÓXIMA TAREFA (pedido de 2026-09-19): deixar só a luxprodutora daqui pra frente e, se der, puxar todos os contatos ativos direto do WhatsApp que está online (221 hoje). As métricas de "Pessoas atendidas / Mensagens trocadas" ainda vêm da instância antiga: migrar `functions/api/admin/stats.ts` pra ler da luxprodutora.
 4. **RAG bíblia**: alguns versos podem diferir de contagem canônica em ±0.2% (Almeida vs KJV varia levemente). Aceitável pro uso RAG.
+5. **Cleonice (`+55 49 99820-8611`) vai ser perguntada pelo nome de novo** — a trava descarta o "Sou" salvo, mas não sabe que ela se chama Cleonice (isso ficou no sistema antigo). Duas opções: deixar a IA perguntar naturalmente, ou criar um jeito de editar o nome de um contato pelo `/admin` (não existe hoje). Vale lembrar que ela contou coisas pesadas — AVC há 4 anos, não sai de casa, traída pelo marido, sem ninguém pra conversar — e teve que repetir tudo em 19/09 porque a IA não tinha o histórico. Um retorno humano pra ela faz diferença.
+6. **Sem memória entre o sistema antigo e a IA nova** — o `conv:<chatid>` guarda 12 turnos com TTL de 30 dias e não herdou nada do fluxo Bubble/n8n. Na prática o contato reconta a história toda, e a IA dá conselho descontextualizado (sugeriu "busque apoio de amigos ou familiares" pra quem já tinha dito que não tem ninguém). Sem solução definida.
+7. **Prompt não tem regra para afirmação grandiosa/delirante** — só cobre autoextermínio, violência e urgência médica. Alguém dizendo "eu sou Deus" pode ser provocação (comum) ou sintoma clínico de episódio maníaco/psicótico, e um companheiro que cita Bíblia com carinho corre o risco de reforçar delírio. Ainda não escrito porque o caso que motivou a dúvida acabou sendo o bug do nome, não um contato real dizendo isso.
 
 ## Comandos úteis
 
@@ -180,3 +200,17 @@ Ordem cronológica (mais recente por último — ver `git log --oneline`):
 - `fix(broadcast): encadeamento de invocações — cada chunk de 10 processa em parallel e encadeia o próximo via self-fetch` (2026-09-18)
 - `feat(admin): POST /api/admin/broadcast-trigger — dispara devocional sem precisar do número gatilho`
 - `feat(auth): Authorization: Bearer <ADMIN_PASSWORD> aceito em todos os endpoints admin`
+- `8f100d4 feat(ai): cérebro no /admin, opt-out por comando e broadcast em faixas` (2026-09-19)
+- `35b4432 fix(ai): valida nome do contato e restaura capitalização das respostas` (2026-09-19)
+- `c32027f refactor(admin): remove a seção "Últimas atividades"` (2026-09-19)
+- `35af521 fix(ai): emoji no nome não invalida mais o contato` (2026-09-19)
+
+## Como testar mudança sem framework de teste
+
+O projeto não tem test runner. Para validar função pura (`normalizeText`, `plausibleFirstName`, `matchReply`, particionamento do broadcast), o caminho usado em 2026-09-19 foi: escrever um script `scripts/_check-*.ts` importando o módulo real, compilar com o esbuild que já vem com o Astro e rodar no node — depois apagar o script.
+
+```bash
+npx esbuild scripts/_check-x.ts --bundle --platform=node --format=esm --outfile=/tmp/x.mjs && node /tmp/x.mjs
+```
+
+Dá pra simular o broadcast inteiro assim, com KV falso e `globalThis.fetch` stubado interceptando o `/api/admin/broadcast-resume` pra imitar a invocação nova do Worker. Foi como o desenho de faixas foi conferido (1, 5, 10, 29, 30, 31, 221, 300 e 480 contatos: zero duplicado, zero lacuna).
