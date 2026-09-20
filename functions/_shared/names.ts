@@ -34,11 +34,12 @@ const LETTERS_ONLY = /^[\p{L}][\p{L}'-]*$/u;
 export function plausibleFirstName(raw: string | null | undefined): string | null {
   if (!raw) return null;
 
-  const trimmed = raw.trim();
+  // Decoration is not a signal: "Drika 🦋" is Drika. Strip the emoji and judge
+  // the word, so only the word itself can disqualify the name.
+  const trimmed = raw
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\p{S}~]/gu, ' ')
+    .trim();
   if (!trimmed) return null;
-
-  // An emoji, digit or symbol anywhere means this is a display name, not a name
-  if (/[\p{Emoji_Presentation}\p{Extended_Pictographic}\p{N}]/u.test(trimmed)) return null;
 
   // Hyphens stay: "Ana-Clara" is one name, while "Maria - Vendas" splits on the space
   const first = trimmed.split(/[\s,._|/]+/).filter(Boolean)[0];
