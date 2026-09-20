@@ -20,7 +20,7 @@ import { runBroadcast } from '../../_shared/broadcast';
 import { isOptedOut, addOptOut } from '../../_shared/optouts';
 import { isOptOutCommand, isOptOutIntent } from '../../_shared/intents';
 import { loadBrain, matchReply, renderResponse, type ReplyRule } from '../../_shared/rules';
-import { plausibleFirstName, namedAsSomeoneElse } from '../../_shared/names';
+import { plausibleFirstName, namedAsSomeoneElse, looksLikeNameQuestion } from '../../_shared/names';
 
 interface UazapiWebhookMessage {
   chatid?: string;
@@ -230,9 +230,16 @@ async function handleConversation(
   // answering our earlier "qual seu nome?"). Best-effort — never blocks.
   if (!contactName && !treatAsFirstMessage) {
     try {
+      // "Everaldo" é o pastor, exceto quando a pessoa está respondendo à
+      // pergunta direta sobre o nome dela — aí é nome de contato mesmo.
+      const lastFromAI = [...history].reverse().find((m) => m.role === 'assistant');
+      const answeringNameQuestion = lastFromAI ? looksLikeNameQuestion(lastFromAI.content) : false;
+
       // O extrator devolve "Sou" para "eu sou sozinha" e "Everaldo" para
       // "Oi Pastor Everaldo" — a mesma trava vale, mais a checagem de vocativo
-      const extracted = plausibleFirstName(await extractName(env, userText));
+      const extracted = plausibleFirstName(await extractName(env, userText), {
+        allowOwnNames: answeringNameQuestion,
+      });
       if (extracted && namedAsSomeoneElse(userText, extracted)) {
         console.log(`nome "${extracted}" ignorado: aparece como vocativo em "${userText.slice(0, 80)}"`);
       } else if (extracted) {

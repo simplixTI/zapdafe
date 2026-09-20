@@ -110,7 +110,9 @@ Três camadas resolvem:
 2. `namedAsSomeoneElse(texto, nome)` — rejeita nome que aparece depois de cumprimento ou título ("Oi Pastor X", "bom dia Maria", "pelo pastor Carlos"). Não dispara em apresentação real ("Oi, meu nome é Toninho")
 3. Prompt do `extractName` reescrito, deixando explícito que queremos o nome de QUEM ESCREVEU e dando exemplos de vocativo que devem devolver NENHUM
 
-**Regra de identidade** (2026-09-20, definida pelo cliente): quem escreve "Pastor Everaldo" está, na prática, falando com o **Zap da Fé**, que é apadrinhado por ele. O system prompt agora diz isso: a IA acolhe o cumprimento com naturalidade, **nunca se passa pelo pastor**, e se perguntarem diretamente explica com carinho que ali é o Zapdafé, o canal de fé dele.
+**Contexto interno — NÃO vai no prompt** (definido pelo cliente em 2026-09-20): o Zap da Fé é apadrinhado pelo Pastor Everaldo, e é por isso que tanta gente cumprimenta o projeto pelo nome dele. Essa relação é informação interna: o cliente pediu explicitamente que a IA **não conte isso a ninguém**. O prompt só carrega o comportamento — não fazer disso um assunto, não explicar nada a respeito, nunca dizer que é o pastor, e se perguntarem diretamente responder apenas que ali é o Zapdafé.
+
+**Exceção, definida pelo cliente:** "Everaldo" **é** aceito como nome de contato quando a pessoa está respondendo a uma pergunta direta sobre o nome dela. `looksLikeNameQuestion()` olha a última fala da IA no histórico; se foi um pedido de nome, o `plausibleFirstName` recebe `allowOwnNames: true`. Fora desse contexto, quem escreve "Everaldo" está se referindo ao pastor. A checagem de vocativo continua valendo mesmo aí — "Bom dia Everaldo" logo após a pergunta ainda é cumprimento, não resposta.
 
 ### 7. Spotify (playlist "fenozap")
 - Playlist ID: `1gIgyuj2MUkK8TsLHJtqRo` (69 tracks, playlist do cliente)

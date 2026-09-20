@@ -28,9 +28,19 @@ const NOT_NAMES = new Set([
 // Nomes do nosso lado do balcão. As pessoas cumprimentam o pastor pelo nome
 // ("Oi Pastor Everaldo, gostaria de receber as mensagens"), e o extrator lia
 // isso como apresentação do próprio contato — o +55 22 99822-5733, que se chama
-// Toninho, virou "Everaldo". Um contato realmente chamado Everaldo perde o
-// nome por isso, o que é bem menos ruim do que chamar todo mundo de Everaldo.
+// Toninho, virou "Everaldo".
+//
+// Só valem como nome de contato quando a pessoa está respondendo à pergunta
+// "qual é o seu nome?" (allowOwnNames). Fora desse contexto, quem escreve
+// "Everaldo" está falando do pastor.
 const OWN_NAMES = new Set(['everaldo', 'zapdafe']);
+
+const NAME_QUESTION = /\b(qual (e )?(o )?(seu|teu) (primeiro )?nome|como (voce |vc |tu )?(se )?chama|como posso (te |lhe )?chamar|(me )?(diz|dizer|falar|saber|conhecer) (o )?(seu|teu) nome|(seu|teu) primeiro nome)\b/;
+
+/** True quando a última fala da IA foi pedir o nome da pessoa. */
+export function looksLikeNameQuestion(text: string): boolean {
+  return NAME_QUESTION.test(normalizeText(text));
+}
 
 const LETTERS_ONLY = /^[\p{L}][\p{L}'-]*$/u;
 
@@ -62,8 +72,14 @@ export function namedAsSomeoneElse(text: string, name: string): boolean {
 /**
  * Returns a usable first name, or null when the input cannot be trusted as one.
  * Rejects emoji, digits, symbols, single letters and common non-name words.
+ *
+ * `allowOwnNames` libera "Everaldo"/"Zapdafé" — use apenas quando a pessoa
+ * está respondendo a uma pergunta direta sobre o nome dela.
  */
-export function plausibleFirstName(raw: string | null | undefined): string | null {
+export function plausibleFirstName(
+  raw: string | null | undefined,
+  { allowOwnNames = false }: { allowOwnNames?: boolean } = {},
+): string | null {
   if (!raw) return null;
 
   // Decoration is not a signal: "Drika 🦋" is Drika. Strip the emoji and judge
@@ -81,7 +97,8 @@ export function plausibleFirstName(raw: string | null | undefined): string | nul
   if (cleaned.length < 2 || cleaned.length > 20) return null;
   if (!LETTERS_ONLY.test(cleaned)) return null;
   const normalized = normalizeText(cleaned);
-  if (NOT_NAMES.has(normalized) || OWN_NAMES.has(normalized)) return null;
+  if (NOT_NAMES.has(normalized)) return null;
+  if (!allowOwnNames && OWN_NAMES.has(normalized)) return null;
 
   return cleaned
     .toLowerCase()
