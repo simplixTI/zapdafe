@@ -217,29 +217,6 @@ import Base from '../../layouts/Base.astro';
           </div>
         </section>
 
-        <!-- Recent -->
-        <section aria-labelledby="recent-h">
-          <div class="admin-section-header">
-            <h2 id="recent-h" class="admin-h2">Últimas atividades</h2>
-          </div>
-          <div class="table-card">
-            <div class="table-wrap">
-              <table class="admin-table">
-                <thead>
-                  <tr>
-                    <th>Contato</th>
-                    <th>Mensagens</th>
-                    <th>Última</th>
-                    <th>Iniciou</th>
-                    <th>Ação</th>
-                  </tr>
-                </thead>
-                <tbody id="recent-body"></tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
         <!-- Cérebro: regras de resposta geridas pelo cliente -->
         <section id="cerebro" aria-labelledby="cerebro-h">
           <div class="admin-section-header">
@@ -344,8 +321,8 @@ import Base from '../../layouts/Base.astro';
     *::-webkit-scrollbar-thumb:hover { background: rgba(184,134,11,0.5); background-clip: padding-box; }
 
     /* Tabular numerals everywhere data lives */
-    .total-value, .period-num, .td-count, .kpi-value,
-    #cutoff-label, #last-updated-text, .td-date, .td-msgs-detail,
+    .total-value, .period-num, .kpi-value,
+    #cutoff-label, #last-updated-text, .td-date,
     .peaks-hours, .optout-row { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
 
     /* ── Shell & background ─────────────────────────── */
@@ -471,19 +448,6 @@ import Base from '../../layouts/Base.astro';
     }
     .admin-btn-danger:hover {
       background: rgba(239, 68, 68, 0.2);
-    }
-    .admin-btn-optout {
-      background: rgba(184, 134, 11, 0.12);
-      color: #D4A017;
-      border: 1px solid rgba(184, 134, 11, 0.3);
-    }
-    .admin-btn-optout:hover {
-      background: rgba(184, 134, 11, 0.22);
-    }
-    .admin-btn-optout-active {
-      background: rgba(184, 134, 11, 0.25);
-      color: #F5EFE4;
-      border: 1px solid rgba(184, 134, 11, 0.5);
     }
 
     /* ── Main layout ─────────────────────────────────── */
@@ -1100,17 +1064,6 @@ import Base from '../../layouts/Base.astro';
       user-select: none;
       box-shadow: 0 4px 12px -6px hsla(var(--h, 40), 60%, 20%, 0.6);
     }
-    .contact-avatar[data-active="1"]::after {
-      content: '';
-      position: absolute;
-      right: -1px; bottom: -1px;
-      width: 10px; height: 10px;
-      border-radius: 50%;
-      background: #25D366;
-      border: 2px solid #141210;
-      box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.55);
-      animation: livepulse 2.2s ease-out infinite;
-    }
     .td-name {
       font-weight: 600;
       font-size: 0.875rem;
@@ -1122,17 +1075,6 @@ import Base from '../../layouts/Base.astro';
       color: rgba(245,239,228,0.35);
       margin-top: 0.25rem;
       letter-spacing: 0.01em;
-    }
-    .td-count {
-      font-size: 1rem;
-      font-weight: 600;
-      color: #F5EFE4;
-    }
-    .td-msgs-detail {
-      font-size: 0.6875rem;
-      color: rgba(245,239,228,0.35);
-      margin-top: 0.25rem;
-      letter-spacing: 0.02em;
     }
     .td-date {
       font-size: 0.75rem;
@@ -1315,16 +1257,6 @@ import Base from '../../layouts/Base.astro';
         totalMessagesFetched: number;
         oldestFetchedISO: string | null;
       };
-      recent: Array<{
-        chatid: string;
-        name: string;
-        firstMsgAt: number;
-        lastMsgAt: number;
-        msgsIn: number;
-        msgsOut: number;
-        msgsTotal: number;
-        optedOut: boolean;
-      }>;
     }
 
     function fmtDate(ms: number): string {
@@ -1676,7 +1608,6 @@ import Base from '../../layouts/Base.astro';
           `${dbg.totalMessagesFetched} msgs em ${dbg.pagesFetched} páginas · mais antiga: ${oldest}${warn}`;
       }
       renderPeaks(data.peaks);
-      renderRecent(data.recent);
 
       // Trigger reveal after DOM commit so transitions fire
       if (isFirstLoad) {
@@ -1762,68 +1693,6 @@ import Base from '../../layouts/Base.astro';
       }
     }
 
-    function renderRecent(recent: StatsResponse['recent']) {
-      const body = document.getElementById('recent-body')!;
-      body.innerHTML = '';
-      if (recent.length === 0) {
-        body.innerHTML = '<tr><td colspan="5" style="padding:2rem 1rem;text-align:center;color:rgba(245,239,228,.35)">Sem atividade no período.</td></tr>';
-        return;
-      }
-      const activeCutoff = Date.now() - 24 * 60 * 60 * 1000;
-      recent.forEach(c => {
-        const tr = document.createElement('tr');
-        const phone = c.chatid.split('@')[0];
-        const initial = (c.name.match(/[A-Za-zÀ-ÿ]/) || ['?'])[0].toUpperCase();
-        const hue = hueFromString(c.chatid);
-        const active = c.lastMsgAt >= activeCutoff ? '1' : '0';
-        tr.innerHTML = `
-          <td style="padding:1rem">
-            <div class="contact-cell">
-              <div class="contact-avatar" style="--h:${hue}" data-active="${active}" aria-hidden="true">${initial}</div>
-              <div>
-                <div class="td-name">${escapeHtml(c.name)}</div>
-                <div class="td-phone">${escapeHtml(phoneFromChatId(c.chatid))}</div>
-              </div>
-            </div>
-          </td>
-          <td style="padding:1rem">
-            <div class="td-count">${c.msgsTotal}</div>
-            <div class="td-msgs-detail">↓${c.msgsIn} ↑${c.msgsOut}</div>
-          </td>
-          <td class="td-date" style="padding:1rem">${fmtDate(c.lastMsgAt)}</td>
-          <td class="td-date" style="padding:1rem">${fmtDate(c.firstMsgAt)}</td>
-          <td style="padding:1rem">
-            <button
-              data-phone="${escapeHtml(phone)}"
-              data-action="${c.optedOut ? 'remove' : 'add'}"
-              class="optout-toggle admin-btn admin-btn-sm ${c.optedOut ? 'admin-btn-optout-active' : 'admin-btn-optout'}"
-            >${c.optedOut ? '✓ Opt-out' : 'Marcar opt-out'}</button>
-          </td>`;
-        body.appendChild(tr);
-      });
-      body.querySelectorAll<HTMLButtonElement>('.optout-toggle').forEach(btn => {
-        btn.addEventListener('click', () => toggleOptOut(btn));
-      });
-    }
-
-    async function toggleOptOut(btn: HTMLButtonElement) {
-      const phone = btn.dataset.phone!;
-      const action = btn.dataset.action as 'add' | 'remove';
-      btn.disabled = true;
-      try {
-        const res = await fetch('/api/admin/optouts', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone, action }),
-        });
-        if (!res.ok) throw new Error('falha');
-        await Promise.all([loadStats(), loadOptOuts()]);
-      } catch (err) {
-        alert('Erro ao atualizar opt-out: ' + (err instanceof Error ? err.message : String(err)));
-        btn.disabled = false;
-      }
-    }
 
     async function loadOptOuts() {
       const res = await fetch('/api/admin/optouts', { credentials: 'same-origin' });
