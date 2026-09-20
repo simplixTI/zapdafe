@@ -142,6 +142,20 @@ Todas marcadas como Secret / Encrypt.
 | `DEVOTIONAL_TRIGGER_PHONE` | `5521998088003` |
 | `SPOTIFY_PLAYLIST_ID` | `1gIgyuj2MUkK8TsLHJtqRo` |
 
+## Link de captação — `zapdafe.com.br/mensagem`
+
+**Não está no repositório.** É uma Redirect Rule 301 no painel da Cloudflare (não há `_redirects` nem redirect no `astro.config.mjs`). Destino atual:
+
+```
+https://api.whatsapp.com/send/?phone=552123427056&text=Oi%20pastor%20Everaldo!%0A%20%20%20Gostaria%20de%20receber%20as%20mensagens!
+```
+
+Três coisas descobertas em 2026-09-20:
+
+1. **O texto pré-preenchido é a origem do bug do nome.** Toda pessoa que entra por esse link manda "Oi pastor Everaldo! Gostaria de receber as mensagens!" como primeira mensagem — não foi um contato digitando isso, é o link. Por isso o problema do "Everaldo" era sistêmico, não pontual. A trava em `names.ts` segura, mas a origem segue lá. Sugestão pendente: trocar por algo sem nome próprio, tipo "Oi! Gostaria de receber as mensagens do Zap da Fé!"
+2. **"Fé no Zap" é o nome do perfil do WhatsApp** do número 21 2342-7056, não está em código nenhum. Trocar pra "Zap da Fé" no WhatsApp Business (Configurações → Perfil da empresa → Nome) ou pela API da Uazapi.
+3. **O número 21 2342-7056 está correto** (confirmado pelo cliente) e é diferente do número do gatilho do devocional (21 99808-8003), que é outra coisa mesmo.
+
 ## Config do webhook no Uazapi (instância luxprodutora)
 
 - URL: `https://zapdafe.com.br/api/uazapi/webhook?secret=<AI_WEBHOOK_SECRET>`
@@ -174,8 +188,25 @@ Todas marcadas como Secret / Encrypt.
 
    Lição: os testes de faixa passaram em 9 cenários com KV falso, onde escrita e leitura são instantâneas — justamente o comportamento que importava não estava modelado.
 
-   **Desenho decidido (ideia do cliente, 2026-09-20): 3 grupos com 10 minutos de intervalo, num Worker separado com Cron Trigger.** Não dá pra fazer no Pages Functions porque não existe como esperar 10 minutos ali (`waitUntil` tem teto de 30s — é essa limitação que gerou o encadeamento, que gerou o limite de hops, que gerou as faixas, que gerou a corrida com o KV). Cron Trigger tem **15 minutos de execução** e 30s de CPU (envio é espera de rede, quase não gasta CPU), então um grupo de 74 contatos (~107s) cabe folgado. O webhook só grava o trabalho no KV e responde; o Worker acorda de 5 em 5 minutos, vê se chegou a hora do próximo grupo, envia e agenda o seguinte. Some o encadeamento, some o limite de 16 hops, some a corrida (o cron roda minutos depois da escrita) e some o pico de 18 conexões. Custo: segundo alvo de deploy, `wrangler login` ou deploy no CI. **Ainda não implementado.**
-3. **Admin ainda lê da campanha360** — PRÓXIMA TAREFA (pedido de 2026-09-19): deixar só a luxprodutora daqui pra frente e, se der, puxar todos os contatos ativos direto do WhatsApp que está online (221 hoje). As métricas de "Pessoas atendidas / Mensagens trocadas" ainda vêm da instância antiga: migrar `functions/api/admin/stats.ts` pra ler da luxprodutora.
+   Os 147 que faltaram foram **reenviados manualmente pelo cliente** em 2026-09-20 via `broadcast-resume`, fechando o dia em 221/221.
+
+   **Desenho decidido (ideia do cliente, 2026-09-20): 3 grupos com 10 minutos de intervalo, num Worker separado com Cron Trigger.** Não dá pra fazer no Pages Functions porque não existe como esperar 10 minutos ali (`waitUntil` tem teto de 30s — é essa limitação que gerou o encadeamento, que gerou o limite de hops, que gerou as faixas, que gerou a corrida com o KV). Cron Trigger tem **15 minutos de execução** e 30s de CPU (envio é espera de rede, quase não gasta CPU), então um grupo de 74 contatos (~107s) cabe folgado. O webhook só grava o trabalho no KV e responde; o Worker acorda de 5 em 5 minutos, vê se chegou a hora do próximo grupo, envia e agenda o seguinte. Some o encadeamento, some o limite de 16 hops, some a corrida (o cron roda minutos depois da escrita) e some o pico de 18 conexões. Custo: segundo alvo de deploy, `wrangler login` ou deploy no CI.
+
+   **Estado: Worker escrito e testado, FALTA DEPLOY.** Código em `worker/` (`wrangler.toml` + `src/index.ts`). Ele lê o mesmo namespace KV do Pages e mantém o formato `broadcast:lane:<messageId>:<lane>`, então o painel continua funcionando sem mudança. Progresso é salvo **a cada lote de 10**, então se a invocação morrer no meio o próximo tick retoma do cursor (perda máxima: os 10 do lote em voo, que podem duplicar).
+
+   ⚠️ **Ordem do deploy importa.** O lado do Pages ainda envia do jeito antigo e NÃO foi alterado de propósito: se ele passar a só enfileirar antes de o Worker existir, o devocional para de sair por completo. Sequência correta:
+   1. `cd worker && npx wrangler login` (uma vez)
+   2. `npx wrangler deploy`
+   3. `npx wrangler secret put AI_UAZAPI_BASE` e `npx wrangler secret put AI_UAZAPI_TOKEN`
+   4. Confirmar nos logs que o cron acorda e responde "nada na fila"
+   5. **Só então** trocar `functions/_shared/broadcast.ts` para apenas enfileirar (grava `broadcast:job:`, os registros de grupo e a chave `broadcast:queue`) e apagar a máquina de encadeamento — `runChunk`, `chainNext`, `recordChainError` e o endpoint `broadcast-resume`
+3. **Admin ainda lê da campanha360** — PRÓXIMA TAREFA. `functions/api/admin/stats.ts` lê de `UAZAPI_BASE`, que aponta pra instância antiga; toda conversa da IA e o devocional acontecem na **luxprodutora**. Por isso o painel mostrou "Hoje: 0 mensagens" em 2026-09-20 estando correto — a campanha360 realmente não teve tráfego. Some a isso o cache de 6h do arquivo (`archiveIsStale`).
+
+   ⚠️ **Os contatos da campanha360 são backlog, não lixo** (instrução do cliente, 2026-09-20): *"salva esse número que era do campanha como backlog, pois existem de verdade essas pessoas"*. Os 221 contatos e 7.882 mensagens são pessoas reais.
+
+   Isso é crítico porque **`arch:contacts` é a fonte dos alvos do devocional**, não só das métricas. Trocar a fonte pra luxprodutora sem cuidado faria o devocional passar de 221 destinatários para só quem já conversou com a IA. O desenho tem que ser **união**: congelar o arquivo da campanha360 como base histórica e somar a luxprodutora por cima, com as métricas do painel distinguindo o acumulado histórico do que é atividade da IA.
+
+   Não foi feito junto com o Worker do devocional de propósito: as duas tarefas mexem em `arch:contacts`, e mudar as duas ao mesmo tempo arriscaria o devocional sair pra lista errada.
 4. **RAG bíblia**: alguns versos podem diferir de contagem canônica em ±0.2% (Almeida vs KJV varia levemente). Aceitável pro uso RAG.
 5. **Não há como corrigir o nome de um contato pelo painel** — já apareceram dois casos (Cleonice salva como "Sou", Toninho salvo como "Everaldo"). A trava descarta o nome errado na leitura e a IA pergunta de novo, mas quando já se sabe o nome certo não existe onde digitar. Vale um campo no `/admin`.
 6. **Cleonice (`+55 49 99820-8611`) vai ser perguntada pelo nome de novo** — a trava descarta o "Sou" salvo, mas não sabe que ela se chama Cleonice (isso ficou no sistema antigo). Duas opções: deixar a IA perguntar naturalmente, ou criar um jeito de editar o nome de um contato pelo `/admin` (não existe hoje). Vale lembrar que ela contou coisas pesadas — AVC há 4 anos, não sai de casa, traída pelo marido, sem ninguém pra conversar — e teve que repetir tudo em 19/09 porque a IA não tinha o histórico. Um retorno humano pra ela faz diferença.

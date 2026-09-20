@@ -1,0 +1,15 @@
+name = "zapdafe-broadcast"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Acorda de 5 em 5 minutos. O intervalo entre grupos (GROUP_INTERVAL_MIN) é que
+# define o espaçamento real do envio; o cron só precisa ser frequente o
+# bastante para não atrasar a hora marcada.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Mesmo namespace do Pages — é assim que o Worker enxerga o trabalho que o
+# webhook enfileirou.
+[[kv_namespaces]]
+binding = "KV"
+id = "71f423871ba94149a3bb8f67b4af9642"
