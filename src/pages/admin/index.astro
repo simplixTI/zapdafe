@@ -217,6 +217,17 @@ import Base from '../../layouts/Base.astro';
           </div>
         </section>
 
+        <!-- Devocionais: quantos receberam cada disparo -->
+        <section id="devocionais" aria-labelledby="devocionais-h">
+          <div class="admin-section-header">
+            <div>
+              <h2 id="devocionais-h" class="admin-h2">Devocionais enviados</h2>
+              <p class="peaks-sub" id="devocionais-sub">–</p>
+            </div>
+          </div>
+          <div id="broadcast-list" class="broadcast-list"></div>
+        </section>
+
         <!-- Cérebro: regras de resposta geridas pelo cliente -->
         <section id="cerebro" aria-labelledby="cerebro-h">
           <div class="admin-section-header">
@@ -1108,6 +1119,73 @@ import Base from '../../layouts/Base.astro';
       background: rgba(245, 239, 228, 0.08);
     }
 
+    /* ── Devocionais enviados ────────────────────────── */
+    .broadcast-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .broadcast-card {
+      background: rgba(245, 239, 228, 0.04);
+      border: 1px solid rgba(245, 239, 228, 0.08);
+      border-radius: 0.875rem;
+      padding: 1rem 1.125rem;
+    }
+    .broadcast-card[data-state="stalled"] { border-color: rgba(239, 68, 68, 0.35); }
+    .broadcast-card[data-state="running"] { border-color: rgba(184, 134, 11, 0.4); }
+    .broadcast-top {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.75rem;
+    }
+    .broadcast-when { font-size: 0.8125rem; color: rgba(245, 239, 228, 0.65); font-variant-numeric: tabular-nums; }
+    .broadcast-badge {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.1875rem 0.5rem;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+    .broadcast-badge[data-state="done"] { background: rgba(37, 211, 102, 0.15); color: #4ADE80; }
+    .broadcast-badge[data-state="running"] { background: rgba(184, 134, 11, 0.2); color: #D4A017; }
+    .broadcast-badge[data-state="stalled"] { background: rgba(239, 68, 68, 0.15); color: #F87171; }
+    .broadcast-count {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #F5EFE4;
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 0.5rem;
+    }
+    .broadcast-count small {
+      font-size: 0.8125rem;
+      font-weight: 400;
+      color: rgba(245, 239, 228, 0.45);
+      margin-left: 0.375rem;
+    }
+    .broadcast-bar {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(245, 239, 228, 0.08);
+      overflow: hidden;
+    }
+    .broadcast-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #B8860B, #D4A017);
+      transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .broadcast-card[data-state="done"] .broadcast-bar-fill { background: linear-gradient(90deg, #16A34A, #4ADE80); }
+    .broadcast-card[data-state="stalled"] .broadcast-bar-fill { background: linear-gradient(90deg, #B91C1C, #F87171); }
+    .broadcast-note {
+      font-size: 0.75rem;
+      line-height: 1.6;
+      color: rgba(245, 239, 228, 0.45);
+      margin-top: 0.625rem;
+    }
+    .broadcast-note strong { color: rgba(245, 239, 228, 0.75); font-weight: 600; }
+    .broadcast-note--alert { color: #F87171; }
+
     /* ── Cérebro ─────────────────────────────────────── */
     .brain-h3 {
       font-size: 0.9375rem;
@@ -1725,6 +1803,99 @@ import Base from '../../layouts/Base.astro';
       });
     }
 
+    interface BroadcastLane {
+      lane: number;
+      start: number;
+      end: number;
+      cursor: number;
+      total: number;
+      dispatched: number;
+      failed: number;
+      finishedAtISO: string | null;
+      chainError?: string;
+    }
+    interface BroadcastItem {
+      messageId: string;
+      progress: {
+        total: number;
+        dispatched: number;
+        failed: number;
+        startedAtISO: string;
+        updatedAtISO: string;
+        finishedAtISO: string | null;
+        chainError?: string;
+        lanes?: BroadcastLane[];
+      } | null;
+      dedupSeen: boolean;
+    }
+
+    // Sem atualização por este tempo e sem ter terminado = a corrida morreu no meio.
+    // Um chunk normal escreve progresso a cada ~15s.
+    const BROADCAST_STALL_MS = 3 * 60 * 1000;
+
+    function broadcastState(p: NonNullable<BroadcastItem['progress']>): 'done' | 'running' | 'stalled' {
+      if (p.finishedAtISO) return 'done';
+      const since = Date.now() - Date.parse(p.updatedAtISO);
+      return since < BROADCAST_STALL_MS ? 'running' : 'stalled';
+    }
+
+    function laneNote(lanes: BroadcastLane[]): string {
+      const paradas = lanes.filter(l => !l.finishedAtISO);
+      if (paradas.length === 0) return `${lanes.length} faixas, todas concluídas.`;
+      const detalhe = paradas
+        .map(l => `faixa ${l.lane}: ${l.dispatched} de ${l.total} (cursor ${l.cursor})`)
+        .join('; ');
+      return `${lanes.length} faixas — ${detalhe}.`;
+    }
+
+    async function loadBroadcasts() {
+      const res = await fetch('/api/admin/broadcasts', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const data = await res.json() as { count: number; items: BroadcastItem[] };
+      const container = document.getElementById('broadcast-list')!;
+      const sub = document.getElementById('devocionais-sub')!;
+      container.innerHTML = '';
+
+      const items = data.items.filter(i => i.progress).slice(0, 6);
+      if (items.length === 0) {
+        sub.textContent = 'Nenhum disparo registrado.';
+        container.innerHTML = '<div style="font-size:.8125rem;color:rgba(245,239,228,.35)">Nenhum devocional disparado ainda.</div>';
+        return;
+      }
+
+      const ultimo = items[0]!.progress!;
+      sub.textContent = `Último: ${ultimo.dispatched} de ${ultimo.total} entregues`;
+
+      for (const item of items) {
+        const p = item.progress!;
+        const state = broadcastState(p);
+        const pct = p.total > 0 ? Math.round((p.dispatched / p.total) * 100) : 0;
+        const label = state === 'done' ? 'Concluído' : state === 'running' ? 'Em andamento' : 'Parado';
+        const faltam = p.total - p.dispatched - p.failed;
+
+        const notas: string[] = [];
+        if (p.lanes?.length) notas.push(laneNote(p.lanes));
+        if (p.failed > 0) notas.push(`<span class="broadcast-note--alert">${p.failed} envio(s) falharam.</span>`);
+        if (state === 'stalled' && faltam > 0) {
+          notas.push(`<span class="broadcast-note--alert"><strong>${faltam} pessoa(s) não receberam.</strong></span>`);
+        }
+        if (p.chainError) notas.push(`<span class="broadcast-note--alert">Erro: ${escapeHtml(p.chainError)}</span>`);
+
+        const card = document.createElement('div');
+        card.className = 'broadcast-card';
+        card.dataset.state = state;
+        card.innerHTML = `
+          <div class="broadcast-top">
+            <span class="broadcast-when">${fmtDate(Date.parse(p.startedAtISO))}</span>
+            <span class="broadcast-badge" data-state="${state}">${label}</span>
+          </div>
+          <div class="broadcast-count">${p.dispatched} de ${p.total}<small>entregues · ${pct}%</small></div>
+          <div class="broadcast-bar"><div class="broadcast-bar-fill" style="width:${pct}%"></div></div>
+          ${notas.length ? `<div class="broadcast-note">${notas.join(' ')}</div>` : ''}`;
+        container.appendChild(card);
+      }
+    }
+
     interface ReplyRule { id: string; triggers: string[]; response: string; createdAtISO: string }
 
     async function loadBrain() {
@@ -1805,7 +1976,7 @@ import Base from '../../layouts/Base.astro';
     document.getElementById('refresh-btn')?.addEventListener('click', () => {
       const btn = document.getElementById('refresh-btn') as HTMLButtonElement;
       btn.style.opacity = '0.5';
-      Promise.all([loadStats(), loadOptOuts(), loadObservability(), loadBrain()]).finally(() => { btn.style.opacity = ''; });
+      Promise.all([loadStats(), loadOptOuts(), loadObservability(), loadBrain(), loadBroadcasts()]).finally(() => { btn.style.opacity = ''; });
     });
     document.getElementById('logout-btn')?.addEventListener('click', async () => {
       await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
@@ -1832,5 +2003,6 @@ import Base from '../../layouts/Base.astro';
     loadOptOuts();
     loadObservability();
     loadBrain();
+    loadBroadcasts();
   </script>
 </Base>
