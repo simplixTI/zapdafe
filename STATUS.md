@@ -29,6 +29,7 @@ A seção "Últimas atividades" foi removida em 2026-09-19 a pedido do cliente. 
 - `/api/admin/stats` — métricas Uazapi da instância **campanha360** (número antigo, ainda usado pra métricas)
 - `/api/admin/optouts` — CRUD da lista de números opt-out
 - `/api/admin/rules` — CRUD do cérebro (respostas automáticas + instruções da IA)
+- `/api/admin/contact-name` — lê e corrige o primeiro nome de um contato
 - `/api/admin/observability` — custo OpenAI (tokens contados dos usage returns), saldo ElevenLabs (via /v1/user), conversas recentes
 - `/api/admin/broadcasts` — lista disparos do devocional com progresso
 
@@ -231,8 +232,9 @@ Três coisas descobertas em 2026-09-20:
 
    `POST /api/admin/archive?source=campanha360` força uma releitura da instância antiga, caso o backlog precise ser reconstruído.
 4. **RAG bíblia**: alguns versos podem diferir de contagem canônica em ±0.2% (Almeida vs KJV varia levemente). Aceitável pro uso RAG.
-5. **Não há como corrigir o nome de um contato pelo painel** — já apareceram dois casos (Cleonice salva como "Sou", Toninho salvo como "Everaldo"). A trava descarta o nome errado na leitura e a IA pergunta de novo, mas quando já se sabe o nome certo não existe onde digitar. Vale um campo no `/admin`.
-6. **Cleonice (`+55 49 99820-8611`) vai ser perguntada pelo nome de novo** — a trava descarta o "Sou" salvo, mas não sabe que ela se chama Cleonice (isso ficou no sistema antigo). Duas opções: deixar a IA perguntar naturalmente, ou criar um jeito de editar o nome de um contato pelo `/admin` (não existe hoje). Vale lembrar que ela contou coisas pesadas — AVC há 4 anos, não sai de casa, traída pelo marido, sem ninguém pra conversar — e teve que repetir tudo em 19/09 porque a IA não tinha o histórico. Um retorno humano pra ela faz diferença.
+5. **Corrigir nome de contato** — ✅ RESOLVIDO em 2026-09-20. Seção "Corrigir nome de um contato" no Cérebro do `/admin`, sobre `GET/POST /api/admin/contact-name`. O "Ver o que está salvo" mostra o nome no KV **e** se a trava de `names.ts` o aceita — é assim que se enxerga o caso clássico de um nome salvo que a IA silenciosamente ignora. Os dois casos conhecidos já foram corrigidos direto no KV: Cleonice (`554998208611`) e Toninho (`5522998225733`).
+
+6. **Cleonice (`+55 49 99820-8611`) merece um retorno humano** — o nome já foi corrigido, mas o ponto é outro. Em 19/09 ela contou que teve um AVC há 4 anos, não sai de casa, foi traída pelo marido e não tem ninguém com quem conversar; e teve que repetir tudo porque a IA não tinha o histórico do sistema antigo. A IA acertar o nome dela não substitui alguém da equipe falar com ela.
 7. **Sem memória entre o sistema antigo e a IA nova** — o `conv:<chatid>` guarda 12 turnos com TTL de 30 dias e não herdou nada do fluxo Bubble/n8n. Na prática o contato reconta a história toda, e a IA dá conselho descontextualizado (sugeriu "busque apoio de amigos ou familiares" pra quem já tinha dito que não tem ninguém). Sem solução definida.
 8. **Prompt não tem regra para afirmação grandiosa/delirante** — só cobre autoextermínio, violência e urgência médica. Alguém dizendo "eu sou Deus" pode ser provocação (comum) ou sintoma clínico de episódio maníaco/psicótico, e um companheiro que cita Bíblia com carinho corre o risco de reforçar delírio. Ainda não escrito porque o caso que motivou a dúvida acabou sendo o bug do nome, não um contato real dizendo isso.
 

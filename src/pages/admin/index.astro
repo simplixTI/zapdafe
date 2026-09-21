@@ -264,6 +264,36 @@ import Base from '../../layouts/Base.astro';
           </div>
 
           <div class="glass-card brain-card-spaced">
+            <h3 class="brain-h3">Corrigir nome de um contato</h3>
+            <p class="brain-hint">
+              Use quando a IA estiver chamando alguém pelo nome errado. Digite o telefone
+              e veja o que está salvo; depois corrija se precisar. Só o primeiro nome.
+            </p>
+            <form id="contact-name-form" class="rule-form">
+              <input
+                type="text"
+                id="contact-name-phone"
+                placeholder="55DD9XXXXXXXX (só dígitos)"
+                class="admin-input"
+                autocomplete="off"
+                inputmode="numeric"
+              />
+              <input
+                type="text"
+                id="contact-name-value"
+                placeholder="Primeiro nome"
+                class="admin-input"
+                autocomplete="off"
+              />
+              <div class="brain-actions">
+                <button type="button" id="contact-name-lookup" class="admin-btn admin-btn-ghost">Ver o que está salvo</button>
+                <button type="submit" class="admin-btn admin-btn-primary">Salvar nome</button>
+                <span id="contact-name-status" class="brain-status"></span>
+              </div>
+            </form>
+          </div>
+
+          <div class="glass-card brain-card-spaced">
             <h3 class="brain-h3">Instruções para a IA</h3>
             <p class="brain-hint">
               Orientações de comportamento que entram no prompt de toda conversa (ex: "se
@@ -2005,6 +2035,58 @@ import Base from '../../layouts/Base.astro';
         responseEl.value = '';
         await loadBrain();
       }
+    });
+
+    function contactNameStatus(msg: string, erro = false) {
+      const el = document.getElementById('contact-name-status')!;
+      el.textContent = msg;
+      el.style.color = erro ? '#F87171' : 'rgba(245,239,228,.45)';
+    }
+
+    document.getElementById('contact-name-lookup')?.addEventListener('click', async () => {
+      const phone = (document.getElementById('contact-name-phone') as HTMLInputElement).value.replace(/\D/g, '');
+      if (!phone) return contactNameStatus('Digite o telefone.', true);
+      contactNameStatus('Buscando…');
+      const res = await fetch(`/api/admin/contact-name?phone=${encodeURIComponent(phone)}`, { credentials: 'same-origin' });
+      const data = await res.json() as { name?: string | null; nameEmUso?: string | null; error?: string };
+      if (!res.ok) return contactNameStatus(data.error ?? 'Falhou', true);
+
+      const campo = document.getElementById('contact-name-value') as HTMLInputElement;
+      if (!data.name) {
+        contactNameStatus('Nenhum nome salvo para esse número.');
+        campo.value = '';
+        return;
+      }
+      campo.value = data.name;
+      // Nome salvo que a trava descarta é o caso clássico ("Sou", "Everaldo")
+      contactNameStatus(
+        data.nameEmUso
+          ? `Salvo: ${data.name} (a IA usa esse)`
+          : `Salvo: ${data.name} — descartado pela validação, a IA não usa`,
+        !data.nameEmUso,
+      );
+    });
+
+    document.getElementById('contact-name-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const phone = (document.getElementById('contact-name-phone') as HTMLInputElement).value.replace(/\D/g, '');
+      const name = (document.getElementById('contact-name-value') as HTMLInputElement).value.trim();
+      if (!phone || !name) return contactNameStatus('Preencha telefone e nome.', true);
+
+      const btn = (e.target as HTMLFormElement).querySelector('button[type="submit"]') as HTMLButtonElement;
+      btn.disabled = true;
+      contactNameStatus('Salvando…');
+      const res = await fetch('/api/admin/contact-name', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, name }),
+      });
+      const data = await res.json() as { name?: string; error?: string; detalhe?: string };
+      btn.disabled = false;
+      contactNameStatus(
+        res.ok ? `Pronto: agora a IA chama de ${data.name}.` : `${data.error}${data.detalhe ? ' — ' + data.detalhe : ''}`,
+        !res.ok,
+      );
     });
 
     document.getElementById('instructions-save')?.addEventListener('click', async () => {
