@@ -144,7 +144,12 @@ export async function fetchMessagesSinceCutoff(creds: UazapiCreds): Promise<Fetc
     }
 
     if (reachedCutoff) break;
-    if (!payload.hasMore) break;
+    // NÃO confie no hasMore: a Uazapi devolve `false` em todos os offsets,
+    // mesmo quando ainda há páginas cheias atrás. Confiar nele fazia a leitura
+    // parar em 1.000 de ~2.500 mensagens da luxprodutora, sem erro nenhum.
+    // Página cheia significa que provavelmente há mais; página incompleta é o
+    // fim de verdade.
+    if (batch.length < LIMIT) break;
     if (!anyNew) break; // safeguard: if server ignores offset, avoid infinite loop
   }
 
