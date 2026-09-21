@@ -218,9 +218,21 @@ Três coisas descobertas em 2026-09-20:
    - **Não é a instância**: `status: connected`
    - **Não é o envio**: um `/send/text` de teste passa normal
 
-   **Causa provável: ritmo.** No desenho antigo cada lote de 10 rodava numa invocação separada, e os ~13s de troca funcionavam como freio sem ninguém ter projetado. Ao juntar o grupo inteiro numa invocação, o envio virou contínuo (8 lotes colados) e a Uazapi passou a recusar. Corrigido com `BATCH_PAUSE_MS = 6000` entre lotes — grupo passa a levar ~3min, muito dentro dos 15 do cron.
+   **CAUSA REAL (2026-09-22): o limite de 50 chamadas externas por invocação do plano gratuito do Workers.** Descoberta comparando a lista de alvos do `broadcast:job:` com quem de fato recebeu (buscando o texto do devocional no `/message/find`). O padrão não deixa dúvida — em **todos** os três grupos, exatamente os 50 primeiros chegaram:
 
-   ⚠️ **Os 86 não têm como ser reenviados seletivamente:** o registro guarda a contagem de falhas, não quais contatos falharam. Reenviar duplicaria para os 149 que receberam. Se isso importar no futuro, é preciso guardar a lista de chatids que falharam.
+   ```
+   grupo 0: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX...........................
+   grupo 1: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX...........................
+   grupo 2: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.........................
+   ```
+
+   Não era ritmo, não era a Uazapi, não eram os números. A hipótese de ritmo que eu registrei em 21/09 estava **errada**, e o `BATCH_PAUSE_MS` que veio dela não resolveria nada (foi mantido, é inofensivo e gentil com a API).
+
+   Corrigido em `55a5eaa` com `MAX_ENVIOS_POR_INVOCACAO = 45`: `sendGroup` devolve se o grupo terminou e, se parou no teto, a fila não avança — o próximo tick retoma pelo cursor já salvo. Com 235 contatos são ~6 ticks, no máximo 40 chamadas por invocação.
+
+   💡 **Assinar o Workers Paid (US$5/mês) eleva esse limite para 10.000 e elimina a restrição de vez.** Enquanto for plano gratuito, qualquer coisa que faça muitas chamadas externas numa invocação vai bater nesse teto — vale lembrar disso ao crescer a lista.
+
+   **Como identificar quem não recebeu** (o registro só guarda a contagem, não a lista): buscar no `/message/find` da lux as mensagens `fromMe` do dia cujo texto casa com o do `broadcast:job:`, e tirar a diferença contra `job.targets`. Foi assim que os 85 foram encontrados e **reenviados manualmente em 2026-09-22 às 10:01**, com 100% de entrega.
 
    **Estado: ✅ NO AR e verificado em 2026-09-20.** Worker `zapdafe-broadcast` deployado (cron `*/5 * * * *`), secrets conferidos, e o lado do Pages trocado para só enfileirar. `runChunk`, `chainNext`, `recordChainError` e o endpoint `broadcast-resume` foram apagados. **Falta só a validação no primeiro disparo real.**
 
