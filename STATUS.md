@@ -160,7 +160,9 @@ https://api.whatsapp.com/send/?phone=552123427056&text=Oi%20pastor%20Everaldo!%0
 Três coisas descobertas em 2026-09-20:
 
 1. **O texto pré-preenchido é a origem do bug do nome.** Toda pessoa que entra por esse link manda "Oi pastor Everaldo! Gostaria de receber as mensagens!" como primeira mensagem — não foi um contato digitando isso, é o link. Por isso o problema do "Everaldo" era sistêmico, não pontual. A trava em `names.ts` segura, mas a origem segue lá. Sugestão pendente: trocar por algo sem nome próprio, tipo "Oi! Gostaria de receber as mensagens do Zap da Fé!"
-2. **"Fé no Zap" é o nome do perfil do WhatsApp** do número 21 2342-7056, não está em código nenhum. Trocar pra "Zap da Fé" no WhatsApp Business (Configurações → Perfil da empresa → Nome) ou pela API da Uazapi.
+2. **"Fé no Zap" é o nome do perfil do WhatsApp**, confirmado em 2026-09-21 pelo `/instance/status` da Uazapi: `profileName: "Fé no Zap"` (o `name` da instância é "ZAP DA FÉ", outro campo). Não está em código nenhum.
+
+   ⚠️ **Não dá pra trocar pela API.** O endpoint `/profile/name` responde `"Profile name updated successfully"` para **qualquer** payload — inclusive POST vazio e cinco nomes de campo diferentes testados — e não aplica nada. A conta é `isBusiness: true`, plataforma `smbi`: em conta WhatsApp Business o nome de exibição é controlado pela Meta e passa por revisão. **Só muda no app WhatsApp Business** do aparelho dono do número `552123427056`, e pode ficar pendente de aprovação.
 3. **O número 21 2342-7056 está correto** (confirmado pelo cliente) e é diferente do número do gatilho do devocional (21 99808-8003), que é outra coisa mesmo.
 
 ## Config do webhook no Uazapi (instância luxprodutora)
@@ -206,6 +208,19 @@ Três coisas descobertas em 2026-09-20:
    Os 147 que faltaram foram **reenviados manualmente pelo cliente** em 2026-09-20 via `broadcast-resume`, fechando o dia em 221/221.
 
    **Desenho decidido (ideia do cliente, 2026-09-20): 3 grupos com 10 minutos de intervalo, num Worker separado com Cron Trigger.** Não dá pra fazer no Pages Functions porque não existe como esperar 10 minutos ali (`waitUntil` tem teto de 30s — é essa limitação que gerou o encadeamento, que gerou o limite de hops, que gerou as faixas, que gerou a corrida com o KV). Cron Trigger tem **15 minutos de execução** e 30s de CPU (envio é espera de rede, quase não gasta CPU), então um grupo de 74 contatos (~107s) cabe folgado. O webhook só grava o trabalho no KV e responde; o Worker acorda de 5 em 5 minutos, vê se chegou a hora do próximo grupo, envia e agenda o seguinte. Some o encadeamento, some o limite de 16 hops, some a corrida (o cron roda minutos depois da escrita) e some o pico de 18 conexões. Custo: segundo alvo de deploy, `wrangler login` ou deploy no CI.
+
+   ### Disparo de 2026-09-21 — arquitetura OK, mas 86 falhas de envio
+
+   Primeiro disparo pelo Worker. **Os três grupos rodaram e terminaram** (11:03, 11:17, 11:32), fila limpa sozinha — a arquitetura passou no teste depois de três dias de disparos que morriam no meio. Mas: **149 de 235 entregues, 86 falhas** (29, 29 e 28 — proporção igual nos três grupos).
+
+   Descartado por medição, não por palpite:
+   - **Não é número inválido**: 233 dos 235 estão no WhatsApp (`POST /chat/check` com `{"numbers":[...]}` devolve `isInWhatsapp` por número — ferramenta útil, não envia nada)
+   - **Não é a instância**: `status: connected`
+   - **Não é o envio**: um `/send/text` de teste passa normal
+
+   **Causa provável: ritmo.** No desenho antigo cada lote de 10 rodava numa invocação separada, e os ~13s de troca funcionavam como freio sem ninguém ter projetado. Ao juntar o grupo inteiro numa invocação, o envio virou contínuo (8 lotes colados) e a Uazapi passou a recusar. Corrigido com `BATCH_PAUSE_MS = 6000` entre lotes — grupo passa a levar ~3min, muito dentro dos 15 do cron.
+
+   ⚠️ **Os 86 não têm como ser reenviados seletivamente:** o registro guarda a contagem de falhas, não quais contatos falharam. Reenviar duplicaria para os 149 que receberam. Se isso importar no futuro, é preciso guardar a lista de chatids que falharam.
 
    **Estado: ✅ NO AR e verificado em 2026-09-20.** Worker `zapdafe-broadcast` deployado (cron `*/5 * * * *`), secrets conferidos, e o lado do Pages trocado para só enfileirar. `runChunk`, `chainNext`, `recordChainError` e o endpoint `broadcast-resume` foram apagados. **Falta só a validação no primeiro disparo real.**
 
