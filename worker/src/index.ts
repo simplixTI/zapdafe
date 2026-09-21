@@ -58,6 +58,12 @@ const BATCH_SIZE = 10;
 // a Uazapi passou a recusar: 86 de 235 falharam em 2026-09-21. O freio agora
 // é explícito.
 const BATCH_PAUSE_MS = 6000;
+// ⛔ O limite que de fato quebrou o disparo de 2026-09-21: o plano gratuito do
+// Workers permite **50 chamadas externas por invocação**. Cada grupo tinha 79
+// contatos, e em TODOS os três exatamente os 50 primeiros chegaram e os demais
+// falharam. Mantemos folga abaixo de 50; o que sobrar do grupo continua no
+// tick seguinte, pelo cursor já salvo.
+const MAX_ENVIOS_POR_INVOCACAO = 45;
 /** Quantos erros distintos guardar por grupo, para diagnóstico. */
 const MAX_ERROS_AMOSTRA = 5;
 // Espaçamento entre grupos, pedido do cliente — evita parecer disparo em massa.
@@ -87,13 +93,22 @@ async function saveGroup(env: Env, g: GroupStats): Promise<void> {
   await env.KV.put(laneKey(g.messageId, g.lane), JSON.stringify(g), { expirationTtl: TTL_30D });
 }
 
-/** Envia o que falta de um grupo, salvando progresso a cada lote. */
-async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promise<void> {
+/**
+ * Envia o que falta de um grupo, salvando progresso a cada lote. Devolve
+ * `true` se o grupo terminou; `false` se parou no teto de envios da invocação
+ * e precisa continuar no próximo tick.
+ */
+async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promise<boolean> {
   const uazapi = aiEnv(env);
 
   let primeiroLote = true;
+  let enviadosNestaInvocacao = 0;
 
   while (group.cursor < group.end) {
+    if (enviadosNestaInvocacao + BATCH_SIZE > MAX_ENVIOS_POR_INVOCACAO) {
+      console.log(`[devocional] grupo ${group.lane}: teto da invocação, continua no próximo tick`);
+      return false;
+    }
     // Freio entre lotes — ver BATCH_PAUSE_MS
     if (!primeiroLote) await new Promise((r) => setTimeout(r, BATCH_PAUSE_MS));
     primeiroLote = false;
@@ -121,11 +136,13 @@ async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promis
     // retoma exatamente daqui em vez de reenviar para quem já recebeu.
     group.cursor = batchEnd;
     group.updatedAtISO = new Date().toISOString();
+    enviadosNestaInvocacao += batch.length;
     await saveGroup(env, group);
   }
 
   group.finishedAtISO = new Date().toISOString();
   await saveGroup(env, group);
+  return true;
 }
 
 export async function runDue(env: Env, now = Date.now()): Promise<string> {
@@ -157,7 +174,12 @@ export async function runDue(env: Env, now = Date.now()): Promise<string> {
     return `disparo ${queue.messageId} concluído`;
   }
 
-  await sendGroup(env, job, pending);
+  const terminou = await sendGroup(env, job, pending);
+  if (!terminou) {
+    // Grupo interrompido no teto da invocação: não mexe no relógio da fila,
+    // para o próximo tick retomar este mesmo grupo de onde parou.
+    return `grupo ${pending.lane}: ${pending.dispatched}/${pending.total} (continua no próximo tick)`;
+  }
 
   const restam = pending.lane + 1 < queue.groups;
   if (restam) {
