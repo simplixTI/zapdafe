@@ -49,7 +49,16 @@ interface Queue {
 }
 
 const BROADCAST_ACTIVE_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
-const GROUPS = 3;
+
+// Fixamos o TAMANHO do grupo, não a quantidade. Com quantidade fixa, cada
+// grupo engordava junto com a lista — foi assim que 3 grupos de 79 viraram
+// um problema. Com tamanho fixo o ritmo de envio é sempre o mesmo (um grupo a
+// cada 10 min) e só a duração total cresce: 235 contatos dão 3 grupos, 500
+// dão 5, 1000 dão 10.
+//
+// 100 é escolhido para o grupo caber folgado numa invocação: ~10 lotes de 10,
+// uns 4 min, contra o teto de 15 min por invocação do cron.
+const TAMANHO_ALVO_GRUPO = 100;
 
 const QUEUE_KEY = 'broadcast:queue';
 const jobKey = (id: string) => `broadcast:job:${id}`;
@@ -91,10 +100,13 @@ async function enqueue(env: Env, text: string, messageId: string): Promise<void>
 
   const job: BroadcastJob = { messageId, text, targets };
   const now = new Date().toISOString();
-  const groupSize = Math.ceil(targets.length / GROUPS);
+  // Quantos grupos cabem no tamanho alvo, e então reparte por igual entre eles
+  // — 235 viram 3 grupos de 79/79/77, não 2 de 100 e um de 35.
+  const qtdGrupos = Math.max(1, Math.ceil(targets.length / TAMANHO_ALVO_GRUPO));
+  const groupSize = Math.ceil(targets.length / qtdGrupos);
 
   const groups: GroupStats[] = [];
-  for (let lane = 0; lane < GROUPS; lane++) {
+  for (let lane = 0; lane < qtdGrupos; lane++) {
     const start = lane * groupSize;
     if (start >= targets.length) break;
     const end = Math.min(start + groupSize, targets.length);

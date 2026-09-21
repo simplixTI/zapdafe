@@ -74,7 +74,8 @@ Recebe da instância Uazapi **luxprodutora**. Fluxo:
 **Broadcast branch** (só enfileira — quem envia é o Worker):
 - Dedupe via `broadcast:sent:<messageId>` (evita re-entrega do Uazapi)
 - Alvos: contatos com `lastMsgAt <90d` E não-optout, lidos do `arch:contacts`
-- Divide em **3 grupos** contíguos e grava job + registros de grupo + `broadcast:queue`. Nenhuma mensagem sai daqui
+- Divide em grupos de **até 100 contatos** (`TAMANHO_ALVO_GRUPO`) e grava job + registros de grupo + `broadcast:queue`. Nenhuma mensagem sai daqui
+- O que é fixo é o **tamanho** do grupo, não a quantidade. Com quantidade fixa cada grupo engordava junto com a lista — foi assim que 3 grupos de 79 bateram no teto de chamadas. Agora o ritmo é sempre o mesmo (um grupo a cada 10 min) e só a duração total cresce: 235 contatos → 3 grupos, 500 → 5, 1000 → 10, 2000 → 20 (~200 min). Se a duração incomodar, o ajuste é `GROUP_INTERVAL_MIN` no Worker, **não** aumentar o grupo
 - O Worker manda um grupo a cada **10 minutos**, em lotes de 10, salvando progresso lote a lote
 
 **Limites da Cloudflare que explicam por que é assim** (medidos nos disparos de 18 a 20/09):
