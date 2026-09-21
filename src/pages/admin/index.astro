@@ -1702,9 +1702,17 @@ import Base from '../../layouts/Base.astro';
       drawSparkline('spark-messages', dailyMsgs, 'spark-fill-green');
       drawSparkline('spark-people', dailyNew, 'spark-fill-gold');
 
-      // Deltas (today vs yesterday)
-      const yestKey = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-      const todayRow = data.daily[data.daily.length - 1];
+      // Deltas (hoje vs ontem). Duas armadilhas aqui:
+      // 1. daily só traz dias COM movimento, então a última linha não é
+      //    necessariamente hoje — de madrugada ela é o dia anterior, e o card
+      //    acabava rotulando o movimento de ontem como "+N hoje".
+      // 2. as chaves do arquivo são em horário de Brasília; usar UTC faria o
+      //    "hoje" virar entre 21h e meia-noite.
+      const brasiliaKey = (ms: number) =>
+        new Date(ms - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const todayKey = brasiliaKey(Date.now());
+      const yestKey = brasiliaKey(Date.now() - 86_400_000);
+      const todayRow = data.daily.find(d => d.date === todayKey);
       const yestRow = data.daily.find(d => d.date === yestKey);
       setDelta('delta-messages',
         (todayRow ? todayRow.incoming + todayRow.outgoing : 0),
