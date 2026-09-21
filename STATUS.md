@@ -179,7 +179,15 @@ Três coisas descobertas em 2026-09-20:
 
 ## O que está PENDENTE
 
-1. **ElevenLabs API key errada** — usuário precisa criar uma nova em https://elevenlabs.io/app/settings/api-keys (formato `sk_...`) e atualizar `ELEVENLABS_API_KEY` no CF. Sem isso, voz cai em fallback de texto (resposta longa chega picotada em várias mensagens) e o card do admin mostra HTTP 400. ⚠️ **Não é problema de saldo** — em 2026-09-19 o cliente foi colocar mais saldo achando que era isso; com a chave errada o 400 continua mesmo com a conta cheia. Conferir se o valor começa com `sk_`.
+1. **ElevenLabs** — ✅ RESOLVIDO em 2026-09-20. A voz está ativa: conta **pro**, 600.164 caracteres.
+
+   **Causa raiz, que demorou a aparecer:** o valor em `ELEVENLABS_API_KEY` era o **ID da chave**, não a chave. Na tela de API keys do ElevenLabs, o ⓘ ao lado do nome mostra o ID (64 caracteres hexadecimais, sem prefixo) e é fácil copiá-lo por engano; a chave de verdade começa com **`sk_`** e só é exibida **uma vez**, na janela que abre ao criar. Na lista ela aparece sempre mascarada (`••••••b540`), então não dá pra conferir o prefixo por lá.
+
+   Sintomas que despistaram: o ElevenLabs devolve **400** para chave malformada (chave errada mas bem formada daria 401), e o cliente chegou a comprar mais saldo achando que era isso. Também não era deploy nem ambiente.
+
+   **O que destravou:** o card do admin passou a informar o *formato* da chave configurada — `NÃO começa com sk_ (64 chars)` — sem expor o valor. Isso transformou três rodadas de adivinhação em um diagnóstico de um segundo. Vale manter essa ideia para qualquer credencial futura.
+
+   ⚠️ Pendência pequena: a chave em uso passou pelo chat durante o diagnóstico. Vale criar outra e desativar essa quando der.
 2. **Broadcast reliability — AINDA QUEBRADO, e é a pendência mais urgente.** Histórico dos três desenhos:
    - **2026-09-18**, tudo num `waitUntil`: morreu no teto de 30s, 20/221 entregues
    - **2026-09-19**, cadeia linear de chunks: morreu no limite de 16 hops, 160/221 entregues (61 sem receber)
