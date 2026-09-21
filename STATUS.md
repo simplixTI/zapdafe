@@ -1,4 +1,4 @@
-# Zapdafé — Status do Projeto (2026-09-20)
+# Zapdafé — Status do Projeto (2026-09-21)
 
 Retomada rápida: leia esse arquivo primeiro pra saber exatamente onde paramos.
 
@@ -231,6 +231,27 @@ Três coisas descobertas em 2026-09-20:
    Lembrar que **`arch:contacts` é também a fonte dos alvos do devocional**, não só das métricas. Como o desenho é união e não troca, a lista de destinatários só cresce — nunca encolhe.
 
    `POST /api/admin/archive?source=campanha360` força uma releitura da instância antiga, caso o backlog precise ser reconstruído.
+
+   ### ⚠️ Estado em 2026-09-21 00:15 — código no ar, dados AINDA NÃO migraram
+
+   **O painel está congelado em 17/09.** Lendo `arch:days` direto do KV, o último dia com registro é `2026-09-17` (incoming 7, outgoing 5); os dias 18, 19 e 20 não existem no arquivo. Não é bug de fuso nem de cálculo: a partir de 17/09 todo atendimento passou a acontecer na **luxprodutora**, e o arquivo nunca leu de lá. Todo sintoma que apareceu depois — "Hoje: 0", totais parados em 221/7.882, "Últimos 7 dias" caindo — é consequência desse único fato.
+
+   **Como conferir o estado real** (a tela engana, o KV não):
+   ```bash
+   npx wrangler kv key get --namespace-id 71f423871ba94149a3bb8f67b4af9642 --remote "arch:meta"
+   npx wrangler kv key get --namespace-id 71f423871ba94149a3bb8f67b4af9642 --remote "arch:days"
+   ```
+   Se `arch:meta` **não** tiver o campo `highWaterBySource`, a leitura nunca rodou com o código da migração — independente do que o painel mostre.
+
+   **O que já foi tentado, em ordem:**
+   1. Migração no ar (`3f83c68`): `stats.ts` e `/api/admin/archive` leem da lux via `aiCreds`
+   2. `archiveIsStale` passou a tratar como vencido qualquer arquivo sem `highWaterBySource` (`65ba25c`), para não esperar as 6h de cache depois de trocar a fonte
+   3. Como nem assim rodou, o `arch:meta` foi envelhecido na mão (`lastArchiveISO` → `2026-09-01`), preservando `totalMessagesEver` e `totalContactsEver`
+
+   ⚠️ **Nunca apague `arch:meta`.** Sem ela, `readArchive` devolve zeros e o backlog de 7.882 mensagens é recontado do zero. Para forçar uma passada, envelheça o `lastArchiveISO` — não delete a chave.
+
+   **Se os números continuarem parados**, pare de mexer no painel e vá na origem: chame `/message/find` e `/chat/find` da luxprodutora pelo terminal com o `AI_UAZAPI_TOKEN` e veja o que ela devolve. A dúvida aberta é se o problema está no nosso código ou no que a Uazapi entrega para essa instância — e isso o painel nunca vai responder.
+
 4. **RAG bíblia**: alguns versos podem diferir de contagem canônica em ±0.2% (Almeida vs KJV varia levemente). Aceitável pro uso RAG.
 5. **Corrigir nome de contato** — ✅ RESOLVIDO em 2026-09-20. Seção "Corrigir nome de um contato" no Cérebro do `/admin`, sobre `GET/POST /api/admin/contact-name`. O "Ver o que está salvo" mostra o nome no KV **e** se a trava de `names.ts` o aceita — é assim que se enxerga o caso clássico de um nome salvo que a IA silenciosamente ignora. Os dois casos conhecidos já foram corrigidos direto no KV: Cleonice (`554998208611`) e Toninho (`5522998225733`).
 
@@ -281,6 +302,15 @@ Ordem cronológica (mais recente por último — ver `git log --oneline`):
 - `35b4432 fix(ai): valida nome do contato e restaura capitalização das respostas` (2026-09-19)
 - `c32027f refactor(admin): remove a seção "Últimas atividades"` (2026-09-19)
 - `35af521 fix(ai): emoji no nome não invalida mais o contato` (2026-09-19)
+- `9a99c51 feat(admin): seção "Devocionais enviados" com X de Y entregues` (2026-09-20)
+- `3f83c68 feat(admin): métricas leem da luxprodutora, campanha360 vira backlog` (2026-09-20)
+- `3cc87d1 fix(admin): diagnóstico da chave do ElevenLabs e trim no header` (2026-09-20)
+- `203c55b perf(admin): conversas com a IA carregam sob demanda` (2026-09-20)
+- `99845c2 refactor(broadcast): Pages só enfileira, quem envia é o Worker` (2026-09-20)
+- `daf6a13 feat(broadcast): endpoint /health no Worker` (2026-09-20)
+- `031fa52 fix(admin): "+N hoje" mostrava o movimento de ontem` (2026-09-21)
+- `cb810e9 feat(admin): campo para corrigir o nome de um contato` (2026-09-21)
+- `65ba25c fix(admin): força uma passada do arquivo após a troca de fonte` (2026-09-21)
 
 ## Como testar mudança sem framework de teste
 
