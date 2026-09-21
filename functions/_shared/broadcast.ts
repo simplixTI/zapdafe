@@ -1,5 +1,14 @@
+// Enfileira o devocional. Quem envia é o Worker com cron (ver worker/src/index.ts).
+//
+// Este arquivo já tentou enviar de três jeitos e os três falharam, sempre pelo
+// mesmo motivo de fundo: não existe onde esperar dentro do Pages Functions.
+//   1. Tudo num waitUntil            -> morreu no teto de ~30s, 20/221 entregues
+//   2. Cadeia de invocações          -> morreu no limite de 16 hops, 160/221
+//   3. Faixas paralelas              -> morreu na consistência eventual do KV, 74/221
+// Agora ele só grava o trabalho e responde. O Worker acorda de 5 em 5 minutos,
+// tem 15 minutos de execução por invocação e manda um grupo por vez.
+
 import type { Env } from './auth';
-import { sendText, type UazapiEnv } from './uazapi-send';
 import { loadOptOutSet } from './optouts';
 
 interface ArchivedContact {
@@ -16,9 +25,8 @@ interface BroadcastJob {
   targets: string[];
 }
 
-// One record per lane. Lanes never share a KV key, which keeps their
-// read-modify-write cycles from clobbering each other's counters.
-interface LaneStats {
+/** Precisa casar com GroupStats em worker/src/index.ts. */
+interface GroupStats {
   messageId: string;
   lane: number;
   start: number;
@@ -31,46 +39,40 @@ interface LaneStats {
   startedAtISO: string;
   updatedAtISO: string;
   finishedAtISO: string | null;
-  chainError?: string;
-  chainErrorAtISO?: string;
+}
+
+interface Queue {
+  messageId: string;
+  groups: number;
+  nextGroupAtISO: string;
+  createdAtISO: string;
 }
 
 const BROADCAST_ACTIVE_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+const GROUPS = 3;
 
-// Three platform ceilings shape this design:
-//   1. A Worker invocation may hold only 6 connections waiting for headers, so
-//      a chunk of 10 is really 2 waves of sends (~8 s each, measured).
-//   2. waitUntil() gets ~30 s, which is what a chunk must fit in.
-//   3. A Worker-to-Worker chain dies after 16 hops (CF-EW-Via, error 1019).
-// A single chain therefore tops out around 16 chunks: on 2026-09-19 a run of
-// 221 contacts stopped at exactly 160 sent. Splitting the list into
-// independent lanes keeps chunks in the proven ~17 s range while cutting the
-// hops per chain: 3 lanes over 221 contacts is ~8 hops each, and the ceiling
-// moves to LANES * 16 * CHUNK_SIZE contacts.
-const CHUNK_SIZE = 10;
-const LANES = 3;
-const RESUME_URL = 'https://zapdafe.com.br/api/admin/broadcast-resume';
-
+const QUEUE_KEY = 'broadcast:queue';
 const jobKey = (id: string) => `broadcast:job:${id}`;
 const laneKey = (id: string, lane: number) => `broadcast:lane:${id}:${lane}`;
 const dedupKey = (id: string) => `broadcast:sent:${id}`;
 
-function aiUazapiEnv(env: Env): UazapiEnv {
-  return { UAZAPI_BASE: env.AI_UAZAPI_BASE, UAZAPI_TOKEN: env.AI_UAZAPI_TOKEN };
-}
+const TTL_7D = 60 * 60 * 24 * 7;
+const TTL_30D = 60 * 60 * 24 * 30;
 
 type Ctx = { waitUntil: (p: Promise<unknown>) => void };
 
-// Kick off a broadcast. Stores the job in KV and starts the first chunk.
-// Must be called from a request handler that has a live waitUntil context.
+/**
+ * Monta a lista de alvos e deixa tudo pronto no KV para o Worker.
+ * Precisa ser chamado de um handler com waitUntil vivo.
+ */
 export function runBroadcast(env: Env, text: string, messageId: string, ctx: Ctx): void {
-  ctx.waitUntil(_setup(env, text, messageId, ctx));
+  ctx.waitUntil(enqueue(env, text, messageId));
 }
 
-async function _setup(env: Env, text: string, messageId: string, ctx: Ctx): Promise<void> {
-  // Idempotency: skip if this messageId was already processed
+async function enqueue(env: Env, text: string, messageId: string): Promise<void> {
+  // Idempotência: o Uazapi reentrega webhook, e sem isso o devocional sairia duas vezes
   if (await env.KV.get(dedupKey(messageId))) return;
-  await env.KV.put(dedupKey(messageId), '1', { expirationTtl: 60 * 60 * 24 * 7 });
+  await env.KV.put(dedupKey(messageId), '1', { expirationTtl: TTL_7D });
 
   const [contactsRaw, optouts] = await Promise.all([
     env.KV.get('arch:contacts'),
@@ -85,18 +87,18 @@ async function _setup(env: Env, text: string, messageId: string, ctx: Ctx): Prom
     if (optouts.has(chatid.split('@')[0])) continue;
     targets.push(chatid);
   }
+  if (targets.length === 0) return;
 
   const job: BroadcastJob = { messageId, text, targets };
-  await env.KV.put(jobKey(messageId), JSON.stringify(job), { expirationTtl: 60 * 60 * 24 });
-
   const now = new Date().toISOString();
-  const laneSize = Math.ceil(targets.length / LANES);
-  const lanes: LaneStats[] = [];
-  for (let lane = 0; lane < LANES; lane++) {
-    const start = lane * laneSize;
+  const groupSize = Math.ceil(targets.length / GROUPS);
+
+  const groups: GroupStats[] = [];
+  for (let lane = 0; lane < GROUPS; lane++) {
+    const start = lane * groupSize;
     if (start >= targets.length) break;
-    const end = Math.min(start + laneSize, targets.length);
-    lanes.push({
+    const end = Math.min(start + groupSize, targets.length);
+    groups.push({
       messageId,
       lane,
       start,
@@ -111,112 +113,19 @@ async function _setup(env: Env, text: string, messageId: string, ctx: Ctx): Prom
       finishedAtISO: null,
     });
   }
-  await Promise.all(lanes.map((l) => saveLane(env, l)));
 
-  // Lane 0 runs here, saving it a hop; the rest each open their own chain.
-  for (const l of lanes) {
-    if (l.lane === 0) ctx.waitUntil(runChunk(env, messageId, l.lane, l.start, ctx));
-    else ctx.waitUntil(chainNext(env, messageId, l.lane, l.start));
-  }
-}
+  const queue: Queue = {
+    messageId,
+    groups: groups.length,
+    nextGroupAtISO: now, // o primeiro grupo sai no próximo tick do cron
+    createdAtISO: now,
+  };
 
-async function saveLane(env: Env, lane: LaneStats): Promise<void> {
-  await env.KV.put(laneKey(lane.messageId, lane.lane), JSON.stringify(lane), {
-    expirationTtl: 60 * 60 * 24 * 30,
-  });
-}
-
-// Sends one chunk of this lane's slice, then chains to the lane's next chunk
-// via a self-fetch to /api/admin/broadcast-resume (a new Worker invocation).
-export async function runChunk(
-  env: Env,
-  messageId: string,
-  lane: number,
-  cursor: number,
-  ctx: Ctx,
-): Promise<void> {
-  const [jobRaw, laneRaw] = await Promise.all([
-    env.KV.get(jobKey(messageId)),
-    env.KV.get(laneKey(messageId, lane)),
+  await Promise.all([
+    env.KV.put(jobKey(messageId), JSON.stringify(job), { expirationTtl: TTL_7D }),
+    ...groups.map((g) =>
+      env.KV.put(laneKey(messageId, g.lane), JSON.stringify(g), { expirationTtl: TTL_30D }),
+    ),
+    env.KV.put(QUEUE_KEY, JSON.stringify(queue), { expirationTtl: TTL_30D }),
   ]);
-  if (!jobRaw || !laneRaw) return;
-
-  const job = JSON.parse(jobRaw) as BroadcastJob;
-  const stats = JSON.parse(laneRaw) as LaneStats;
-
-  const chunkEnd = Math.min(cursor + CHUNK_SIZE, stats.end);
-  const chunk = job.targets.slice(cursor, chunkEnd);
-  if (chunk.length === 0) return;
-
-  const aiEnv = aiUazapiEnv(env);
-  await Promise.all(
-    chunk.map(async (chatid) => {
-      try {
-        await sendText(aiEnv, chatid, job.text);
-        stats.dispatched += 1;
-      } catch (err) {
-        stats.failed += 1;
-        console.error(`broadcast send to ${chatid}:`, err instanceof Error ? err.message : String(err));
-      }
-      stats.lastChatid = chatid;
-    }),
-  );
-
-  const nextCursor = chunkEnd;
-  const done = nextCursor >= stats.end;
-  stats.cursor = nextCursor;
-  if (done) stats.finishedAtISO = new Date().toISOString();
-  stats.updatedAtISO = new Date().toISOString();
-
-  await saveLane(env, stats);
-
-  if (done) return;
-
-  // Chain: fire the next chunk in a NEW Worker invocation via self-fetch.
-  // waitUntil keeps the current Worker alive until broadcast-resume responds (< 1 s).
-  ctx.waitUntil(chainNext(env, messageId, lane, nextCursor));
-}
-
-// A broken chain used to be invisible: the run just stopped mid-list and looked
-// identical to one still in flight. Record it so /api/admin/broadcasts can say
-// where it died and from which cursor to resume.
-async function chainNext(
-  env: Env,
-  messageId: string,
-  lane: number,
-  cursor: number,
-): Promise<void> {
-  const url =
-    `${RESUME_URL}?messageId=${encodeURIComponent(messageId)}` +
-    `&lane=${lane}&cursor=${cursor}`;
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'x-broadcast-secret': env.AI_WEBHOOK_SECRET },
-    });
-    if (!res.ok) throw new Error(`broadcast-resume respondeu ${res.status}`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('broadcast-resume chain failed:', message);
-    await recordChainError(env, messageId, lane, cursor, message);
-  }
-}
-
-async function recordChainError(
-  env: Env,
-  messageId: string,
-  lane: number,
-  cursor: number,
-  message: string,
-): Promise<void> {
-  const raw = await env.KV.get(laneKey(messageId, lane));
-  if (!raw) return;
-  try {
-    const stats = JSON.parse(raw) as LaneStats;
-    stats.chainError = `cursor ${cursor}: ${message}`;
-    stats.chainErrorAtISO = new Date().toISOString();
-    await saveLane(env, stats);
-  } catch {
-    /* lane record unreadable — nothing useful to write */
-  }
 }

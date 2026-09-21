@@ -43,7 +43,11 @@ A seção "Últimas atividades" foi removida em 2026-09-19 a pedido do cliente. 
 
 **POST `/api/admin/broadcast-trigger`** — dispara devocional manualmente sem precisar do número gatilho. Body: `{ text: string }`. Auth: session cookie ou `Authorization: Bearer <ADMIN_PASSWORD>`. Útil para reenvios.
 
-**POST `/api/admin/broadcast-resume?messageId=...&lane=...&cursor=...`** — endpoint interno, chamado em cadeia por cada chunk. Auth: header `x-broadcast-secret = AI_WEBHOOK_SECRET`. Não requer cookie de sessão. Serve também para **retomar um disparo que morreu no meio**, sem reenviar pra quem já recebeu — foi o que se cogitou fazer em 19/09 com os 61 restantes (o `broadcast:job:` guarda os alvos por 24h).
+O `/api/admin/broadcast-resume` **foi removido** em 2026-09-20 junto com a máquina de encadeamento. Não é mais necessário: se um grupo falhar no meio, o próximo tick do cron retoma sozinho do cursor salvo.
+
+**Como o disparo funciona agora:** o webhook (ou o broadcast-trigger) apenas **enfileira** no KV — grava `broadcast:job:<messageId>`, um registro por grupo em `broadcast:lane:<messageId>:<lane>` e a chave `broadcast:queue` — e responde na hora, sem enviar nada. O Worker (`worker/src/index.ts`) acorda de 5 em 5 minutos, vê se chegou a hora do próximo grupo, envia e agenda o seguinte para dali a 10 minutos.
+
+⚠️ O formato desses três registros é **contrato entre o Pages e o Worker**. Mudar um lado sem o outro faz o devocional parar de sair em silêncio. Existe um teste de integração ponta a ponta para isso (ver "Como testar mudança sem framework de teste").
 
 ### 4. Webhook AI (`/api/uazapi/webhook`)
 Recebe da instância Uazapi **luxprodutora**. Fluxo:
@@ -66,17 +70,18 @@ Recebe da instância Uazapi **luxprodutora**. Fluxo:
 - Se resposta **>455 chars**: TTS ElevenLabs. Cada áudio vai até 1200 caracteres (`VOICE_CHUNK_MAX`), bem acima do gatilho de propósito — se os dois fossem iguais, uma resposta de 500 caracteres viraria dois áudios. Na prática a resposta típica sai num áudio só. **Se o TTS falhar, cada bloco vira uma mensagem de texto separada**, que é o sintoma de resposta picotada quando a chave do ElevenLabs está errada
 - `splitSentences()` quebra só em fim de frase de verdade. Na dúvida NÃO quebra: trecho maior é inofensivo, frase partida ao meio não é. Não corta em abreviação ("Pr. Everaldo", "Sra. Maria"), inicial solta ("J. Silva"), número ("1.500"), reticências no meio da frase, nem ponto seguido de minúscula (`'ele disse "..." e isso me acalmou'`). A versão anterior cortava em todo ponto final, inclusive dentro de aspas, e ainda comia dois pontos das reticências
 
-**Broadcast branch:**
+**Broadcast branch** (só enfileira — quem envia é o Worker):
 - Dedupe via `broadcast:sent:<messageId>` (evita re-entrega do Uazapi)
 - Alvos: contatos com `lastMsgAt <90d` E não-optout, lidos do `arch:contacts`
-- **Faixas paralelas** (`LANES = 3`): a lista é dividida em 3 fatias contíguas, cada uma com sua própria cadeia de chunks de 10. Progresso por faixa em `broadcast:lane:<messageId>:<lane>`, somado na leitura por `/api/admin/broadcasts`
-- Falha de encadeamento agora fica gravada (`chainError`/`chainErrorAtISO`) em vez de morrer em silêncio
+- Divide em **3 grupos** contíguos e grava job + registros de grupo + `broadcast:queue`. Nenhuma mensagem sai daqui
+- O Worker manda um grupo a cada **10 minutos**, em lotes de 10, salvando progresso lote a lote
 
-**Limites da Cloudflare que definem esse desenho** (medidos no disparo de 2026-09-19):
-- 6 conexões simultâneas por invocação → chunk de 10 = 2 ondas ≈ 17s
-- `waitUntil()` ≈ 30s → é o que cada chunk precisa caber
-- **16 invocações Worker→Worker por cadeia** (header `CF-EW-Via`, erro 1019) → foi o que matou o disparo em exatamente 160/221
-- Teto do desenho atual: `LANES × 16 × CHUNK_SIZE` = **480 contatos**. Passar disso exige subir `LANES` ou migrar pro Worker com cron/Queue
+**Limites da Cloudflare que explicam por que é assim** (medidos nos disparos de 18 a 20/09):
+- 6 conexões simultâneas por invocação → lote de 10 = 2 ondas ≈ 17s
+- `waitUntil()` ≈ 30s no Pages → matou o 1º desenho em 20/221
+- **16 invocações Worker→Worker por cadeia** (header `CF-EW-Via`, erro 1019) → matou o 2º em exatamente 160/221
+- **KV é eventualmente consistente** → matou o 3º em 74/221: os workers das faixas 1 e 2 nasceram 1s depois da escrita, leram `null` e saíram em silêncio
+- Cron Trigger: **15 minutos** de execução e 30s de CPU (envio é espera de rede, quase não gasta CPU) → é o que torna o desenho atual possível, sem teto prático de contatos
 
 **Respostas rápidas (antes de chamar a IA), na ordem:**
 1. Já é opt-out → silêncio total
@@ -201,14 +206,11 @@ Três coisas descobertas em 2026-09-20:
 
    **Desenho decidido (ideia do cliente, 2026-09-20): 3 grupos com 10 minutos de intervalo, num Worker separado com Cron Trigger.** Não dá pra fazer no Pages Functions porque não existe como esperar 10 minutos ali (`waitUntil` tem teto de 30s — é essa limitação que gerou o encadeamento, que gerou o limite de hops, que gerou as faixas, que gerou a corrida com o KV). Cron Trigger tem **15 minutos de execução** e 30s de CPU (envio é espera de rede, quase não gasta CPU), então um grupo de 74 contatos (~107s) cabe folgado. O webhook só grava o trabalho no KV e responde; o Worker acorda de 5 em 5 minutos, vê se chegou a hora do próximo grupo, envia e agenda o seguinte. Some o encadeamento, some o limite de 16 hops, some a corrida (o cron roda minutos depois da escrita) e some o pico de 18 conexões. Custo: segundo alvo de deploy, `wrangler login` ou deploy no CI.
 
-   **Estado: Worker escrito e testado, FALTA DEPLOY.** Código em `worker/` (`wrangler.toml` + `src/index.ts`). Ele lê o mesmo namespace KV do Pages e mantém o formato `broadcast:lane:<messageId>:<lane>`, então o painel continua funcionando sem mudança. Progresso é salvo **a cada lote de 10**, então se a invocação morrer no meio o próximo tick retoma do cursor (perda máxima: os 10 do lote em voo, que podem duplicar).
+   **Estado: ✅ NO AR desde 2026-09-20.** O Worker foi deployado e o lado do Pages já foi trocado para só enfileirar. `runChunk`, `chainNext`, `recordChainError` e o endpoint `broadcast-resume` foram apagados. **Falta validar em produção no disparo seguinte.**
 
-   ⚠️ **Ordem do deploy importa.** O lado do Pages ainda envia do jeito antigo e NÃO foi alterado de propósito: se ele passar a só enfileirar antes de o Worker existir, o devocional para de sair por completo. Sequência correta:
-   1. `cd worker && npx wrangler login` (uma vez)
-   2. `npx wrangler deploy`
-   3. `npx wrangler secret put AI_UAZAPI_BASE` e `npx wrangler secret put AI_UAZAPI_TOKEN`
-   4. Confirmar nos logs que o cron acorda e responde "nada na fila"
-   5. **Só então** trocar `functions/_shared/broadcast.ts` para apenas enfileirar (grava `broadcast:job:`, os registros de grupo e a chave `broadcast:queue`) e apagar a máquina de encadeamento — `runChunk`, `chainNext`, `recordChainError` e o endpoint `broadcast-resume`
+   Detalhes do que foi: Código em `worker/` (`wrangler.toml` + `src/index.ts`). Ele lê o mesmo namespace KV do Pages e mantém o formato `broadcast:lane:<messageId>:<lane>`, então o painel continua funcionando sem mudança. Progresso é salvo **a cada lote de 10**, então se a invocação morrer no meio o próximo tick retoma do cursor (perda máxima: os 10 do lote em voo, que podem duplicar).
+
+   Para mexer no Worker depois: `cd worker`, `npx wrangler deploy`. Os secrets `AI_UAZAPI_BASE` e `AI_UAZAPI_TOKEN` são do Worker e ficam separados dos do Pages — mudou num lado, tem que mudar no outro
 3. **Métricas migradas pra luxprodutora** — FEITO em 2026-09-20. `stats.ts` e `/api/admin/archive` agora leem da **luxprodutora** (`aiCreds`). O painel mostrava "Hoje: 0 mensagens" estando correto: a campanha360 realmente não tinha tráfego, porque toda conversa da IA acontece na outra instância.
 
    **Os contatos da campanha360 são backlog, não lixo** (instrução do cliente): *"salva esse número que era do campanha como backlog, pois existem de verdade essas pessoas"*. Isso é atendido sem precisar copiar nada: `runArchive` **mescla** em vez de substituir, então os 221 contatos e as 7.882 mensagens que já estão em `arch:contacts` continuam lá e a luxprodutora vai somando por cima, pra sempre.

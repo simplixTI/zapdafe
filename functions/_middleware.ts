@@ -3,7 +3,6 @@ import { isAuthed, unauthorizedJson, unauthorizedRedirect } from './_shared/auth
 
 const PUBLIC_PATHS = [
   '/api/admin/login',
-  '/api/admin/broadcast-resume', // internal chain endpoint — has its own secret auth
   '/api/optouts', // consumed by Bubble via bearer token, has its own auth
 ];
 
