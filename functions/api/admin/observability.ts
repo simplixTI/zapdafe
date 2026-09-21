@@ -51,12 +51,25 @@ async function fetchElevenLabsUsage(env: Env): Promise<ObservabilityResponse['el
   if (!env.ELEVENLABS_API_KEY) {
     return { charactersUsed: 0, charactersLimit: 0, percentUsed: 0, tier: null, error: 'no api key' };
   }
+  // Espaço ou quebra de linha que veio junto na colagem deixa o header
+  // malformado, e o ElevenLabs responde 400 — indistinguível de chave errada.
+  const key = env.ELEVENLABS_API_KEY.trim();
+
   try {
     const res = await fetch('https://api.elevenlabs.io/v1/user', {
-      headers: { 'xi-api-key': env.ELEVENLABS_API_KEY, Accept: 'application/json' },
+      headers: { 'xi-api-key': key, Accept: 'application/json' },
     });
     if (!res.ok) {
-      return { charactersUsed: 0, charactersLimit: 0, percentUsed: 0, tier: null, error: `HTTP ${res.status}` };
+      // Diz o FORMATO da chave configurada, nunca o valor: é o que separa
+      // "chave errada" de "chave certa com outro problema".
+      const shape = key.startsWith('sk_')
+        ? `sk_… (${key.length} chars)`
+        : `NÃO começa com sk_ (${key.length} chars)`;
+      const trimmed = key.length !== env.ELEVENLABS_API_KEY.length ? ', tinha espaço em volta' : '';
+      return {
+        charactersUsed: 0, charactersLimit: 0, percentUsed: 0, tier: null,
+        error: `HTTP ${res.status} — chave configurada: ${shape}${trimmed}`,
+      };
     }
     const json = (await res.json()) as {
       subscription?: {

@@ -22,7 +22,8 @@ export async function synthesize(env: VoiceEnv, text: string): Promise<string> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'xi-api-key': env.ELEVENLABS_API_KEY,
+        // trim: espaço vindo da colagem no painel quebra o header e vira 400
+        'xi-api-key': env.ELEVENLABS_API_KEY.trim(),
         Accept: 'audio/mpeg',
       },
       body: JSON.stringify({
