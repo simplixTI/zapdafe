@@ -153,7 +153,58 @@ export async function runDue(env: Env, now = Date.now()): Promise<string> {
   return `grupo ${pending.lane}: ${pending.dispatched} enviados, ${pending.failed} falhas`;
 }
 
+/**
+ * Confere se o Worker está de fato utilizável: KV acessível e credenciais da
+ * Uazapi válidas. Sem isso, um secret errado só apareceria no próximo disparo
+ * — tarde demais. Autenticado com o próprio token, então não revela nada a
+ * quem já não o tivesse.
+ */
+async function health(env: Env, url: URL): Promise<Response> {
+  const ok = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body, null, 2), {
+      status,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    });
+
+  if (url.searchParams.get('token') !== env.AI_UAZAPI_TOKEN) {
+    return ok({ error: 'token nao confere' }, 401);
+  }
+
+  let kv = 'ok';
+  try {
+    await env.KV.get(QUEUE_KEY);
+  } catch (err) {
+    kv = `falhou: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  let uazapi: string;
+  try {
+    const res = await fetch(`${env.AI_UAZAPI_BASE}/instance/status`, {
+      headers: { token: env.AI_UAZAPI_TOKEN },
+    });
+    uazapi = res.ok ? 'ok' : `HTTP ${res.status}`;
+  } catch (err) {
+    uazapi = `falhou: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  const queue = await readJson<Queue>(env, QUEUE_KEY);
+  return ok({
+    worker: 'zapdafe-broadcast',
+    kv,
+    uazapi,
+    base: env.AI_UAZAPI_BASE,
+    tokenChars: env.AI_UAZAPI_TOKEN.length,
+    fila: queue ? { messageId: queue.messageId, grupos: queue.groups, proximoAsISO: queue.nextGroupAtISO } : null,
+  });
+}
+
 export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === '/health') return health(env, url);
+    return new Response('zapdafe-broadcast', { status: 200 });
+  },
+
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       runDue(env)
