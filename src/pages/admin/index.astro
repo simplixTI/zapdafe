@@ -1893,6 +1893,7 @@ import Base from '../../layouts/Base.astro';
       failed: number;
       finishedAtISO: string | null;
       chainError?: string;
+      errosAmostra?: string[];
     }
     interface BroadcastItem {
       messageId: string;
@@ -1955,7 +1956,15 @@ import Base from '../../layouts/Base.astro';
 
         const notas: string[] = [];
         if (p.lanes?.length) notas.push(laneNote(p.lanes));
-        if (p.failed > 0) notas.push(`<span class="broadcast-note--alert">${p.failed} envio(s) falharam.</span>`);
+        if (p.failed > 0) {
+          // Mostrar o motivo junto do número: "12 falharam" sozinho não dá
+          // nenhuma pista de onde olhar.
+          const motivos = [...new Set((p.lanes ?? []).flatMap(l => l.errosAmostra ?? []))].slice(0, 2);
+          notas.push(
+            `<span class="broadcast-note--alert">${p.failed} envio(s) falharam` +
+            (motivos.length ? `: ${escapeHtml(motivos.join(' · '))}` : '') + '</span>',
+          );
+        }
         if (state === 'stalled' && faltam > 0) {
           notas.push(`<span class="broadcast-note--alert"><strong>${faltam} pessoa(s) não receberam.</strong></span>`);
         }

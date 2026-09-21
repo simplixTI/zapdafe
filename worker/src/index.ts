@@ -38,6 +38,9 @@ interface GroupStats {
   startedAtISO: string;
   updatedAtISO: string;
   finishedAtISO: string | null;
+  /** Amostra dos erros de envio. Sem isso a falha some no console e o painel
+   *  só mostra um número, que não diz nada sobre a causa. */
+  errosAmostra?: string[];
 }
 
 interface Queue {
@@ -49,6 +52,14 @@ interface Queue {
 
 // 6 conexões simultâneas por invocação: um lote de 10 vira 2 ondas de ~8s.
 const BATCH_SIZE = 10;
+// Pausa entre lotes. No desenho antigo cada lote rodava numa invocação
+// separada, e os ~13s de troca funcionavam como freio sem ninguém ter
+// projetado isso. Ao juntar tudo numa invocação só, o envio ficou contínuo e
+// a Uazapi passou a recusar: 86 de 235 falharam em 2026-09-21. O freio agora
+// é explícito.
+const BATCH_PAUSE_MS = 6000;
+/** Quantos erros distintos guardar por grupo, para diagnóstico. */
+const MAX_ERROS_AMOSTRA = 5;
 // Espaçamento entre grupos, pedido do cliente — evita parecer disparo em massa.
 const GROUP_INTERVAL_MIN = 10;
 
@@ -80,7 +91,13 @@ async function saveGroup(env: Env, g: GroupStats): Promise<void> {
 async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promise<void> {
   const uazapi = aiEnv(env);
 
+  let primeiroLote = true;
+
   while (group.cursor < group.end) {
+    // Freio entre lotes — ver BATCH_PAUSE_MS
+    if (!primeiroLote) await new Promise((r) => setTimeout(r, BATCH_PAUSE_MS));
+    primeiroLote = false;
+
     const batchEnd = Math.min(group.cursor + BATCH_SIZE, group.end);
     const batch = job.targets.slice(group.cursor, batchEnd);
 
@@ -91,7 +108,10 @@ async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promis
           group.dispatched += 1;
         } catch (err) {
           group.failed += 1;
-          console.error(`envio para ${chatid} falhou:`, err instanceof Error ? err.message : String(err));
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`envio para ${chatid} falhou:`, msg);
+          const amostra = (group.errosAmostra ??= []);
+          if (amostra.length < MAX_ERROS_AMOSTRA && !amostra.includes(msg)) amostra.push(msg);
         }
         group.lastChatid = chatid;
       }),

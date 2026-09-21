@@ -8,6 +8,11 @@ compatibility_date = "2025-01-01"
 [triggers]
 crons = ["*/5 * * * *"]
 
+# Sem isso os console.error do cron só aparecem em `wrangler tail` ao vivo — e
+# uma falha de madrugada some sem deixar rastro.
+[observability]
+enabled = true
+
 # Mesmo namespace do Pages — é assim que o Worker enxerga o trabalho que o
 # webhook enfileirou.
 [[kv_namespaces]]
