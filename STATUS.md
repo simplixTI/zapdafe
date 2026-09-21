@@ -20,7 +20,7 @@ Zapdafé é um companheiro cristão via WhatsApp: recebe mensagens, responde com
 ### 1. Admin dashboard (`/admin`, `/admin-login`)
 Redesign completo com skeleton loading, sparklines de 30d das métricas totais, contagem animada, deltas hoje vs ontem, avatars hue-hash por chatid, live-dot pulsante, tabular numerals, custom scrollbar/selection, etc.
 
-Seções da página: Totais acumulados → Sistema (custos OpenAI + saldo ElevenLabs) → Por período → Conversas com a IA → Picos por horário → Cérebro → Opt-outs.
+Seções da página, nesta ordem: Totais acumulados → Por período → Sistema (custos OpenAI + saldo ElevenLabs) → Conversas com a IA → Picos por horário → Devocionais enviados → Cérebro → Opt-outs.
 
 A seção "Últimas atividades" foi removida em 2026-09-19 a pedido do cliente. Junto com ela saiu o botão "Marcar opt-out" por contato, que só existia naquela tabela — hoje só dá pra marcar opt-out digitando o número na seção Opt-outs. `/api/admin/stats` continua devolvendo o campo `recent`, que ninguém mais consome.
 
