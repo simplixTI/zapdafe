@@ -22,6 +22,7 @@ interface ObservabilityResponse {
     tier: string | null;
     error?: string;
   };
+  /** null quando não foi pedido — ver o comentário em onRequest. */
   conversations: {
     activeLast24h: number;
     totalTracked: number;
@@ -33,7 +34,7 @@ interface ObservabilityResponse {
       lastFromRole: 'user' | 'assistant' | null;
       lastPreview: string;
     }>;
-  };
+  } | null;
 }
 
 interface ConvRow {
@@ -143,10 +144,15 @@ async function fetchConversations(env: Env): Promise<ObservabilityResponse['conv
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { env } = context;
 
+  // fetchConversations lista até 1000 perfis e faz duas leituras de KV por
+  // contato — a parte mais cara do painel inteiro. Só roda quando o painel
+  // pede, ou seja, quando alguém abre a seção de conversas.
+  const wantConversations = new URL(context.request.url).searchParams.get('conversations') === '1';
+
   const [openai, elevenlabs, conversations] = await Promise.all([
     costSummary(env),
     fetchElevenLabsUsage(env),
-    fetchConversations(env),
+    wantConversations ? fetchConversations(env) : Promise.resolve(null),
   ]);
 
   const response: ObservabilityResponse = {

@@ -167,29 +167,32 @@ import Base from '../../layouts/Base.astro';
           </div>
         </section>
 
-        <!-- Conversas com a IA -->
+        <!-- Conversas com a IA — fechada por padrão: é a consulta mais cara do painel -->
         <section aria-labelledby="convs-h">
-          <div class="admin-section-header">
-            <div>
-              <h2 id="convs-h" class="admin-h2">Conversas com a IA</h2>
-              <p class="peaks-sub" id="convs-sub">–</p>
+          <details id="convs-details" class="lazy-section">
+            <summary class="lazy-summary">
+              <div>
+                <h2 id="convs-h" class="admin-h2">Conversas com a IA</h2>
+                <p class="peaks-sub" id="convs-sub">Clique para carregar</p>
+              </div>
+              <svg class="lazy-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="table-card">
+              <div class="table-wrap">
+                <table class="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Contato</th>
+                      <th>Última mensagem</th>
+                      <th class="th-num">Turnos</th>
+                      <th>Quando</th>
+                    </tr>
+                  </thead>
+                  <tbody id="convs-body"></tbody>
+                </table>
+              </div>
             </div>
-          </div>
-          <div class="table-card">
-            <div class="table-wrap">
-              <table class="admin-table">
-                <thead>
-                  <tr>
-                    <th>Contato</th>
-                    <th>Última mensagem</th>
-                    <th class="th-num">Turnos</th>
-                    <th>Quando</th>
-                  </tr>
-                </thead>
-                <tbody id="convs-body"></tbody>
-              </table>
-            </div>
-          </div>
+          </details>
         </section>
 
         <!-- Peaks heatmap -->
@@ -1119,6 +1122,29 @@ import Base from '../../layouts/Base.astro';
       background: rgba(245, 239, 228, 0.08);
     }
 
+    /* ── Seção retrátil (carrega sob demanda) ────────── */
+    .lazy-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      cursor: pointer;
+      list-style: none;
+      padding: 0.25rem 0;
+      margin-bottom: 1rem;
+      user-select: none;
+    }
+    .lazy-summary::-webkit-details-marker { display: none; }
+    .lazy-summary:hover .admin-h2 { color: #D4A017; }
+    .lazy-summary .admin-h2 { transition: color 0.15s; }
+    .lazy-chevron {
+      color: rgba(184, 134, 11, 0.7);
+      flex-shrink: 0;
+      transition: transform 0.2s ease;
+    }
+    .lazy-section[open] .lazy-chevron { transform: rotate(180deg); }
+    .lazy-summary:focus-visible { outline: 2px solid #B8860B; outline-offset: 4px; border-radius: 6px; }
+
     /* ── Devocionais enviados ────────────────────────── */
     .broadcast-list { display: flex; flex-direction: column; gap: 0.75rem; }
     .broadcast-card {
@@ -1415,9 +1441,12 @@ import Base from '../../layouts/Base.astro';
       return '$' + n.toFixed(n < 1 ? 4 : 2);
     }
 
-    async function loadObservability() {
+    async function loadObservability({ withConversations = false } = {}) {
       try {
-        const res = await fetch('/api/admin/observability', { credentials: 'same-origin' });
+        const url = withConversations
+          ? '/api/admin/observability?conversations=1'
+          : '/api/admin/observability';
+        const res = await fetch(url, { credentials: 'same-origin' });
         if (!res.ok) return;
         const data = await res.json() as ObservabilityResponse;
         renderObservability(data);
@@ -1425,6 +1454,17 @@ import Base from '../../layouts/Base.astro';
         console.warn('observability failed:', err);
       }
     }
+
+    // Carrega na primeira abertura e fica em cache; o botão Atualizar recarrega
+    // se a seção estiver aberta.
+    let convsLoaded = false;
+    const convsDetails = document.getElementById('convs-details') as HTMLDetailsElement | null;
+    convsDetails?.addEventListener('toggle', () => {
+      if (!convsDetails.open || convsLoaded) return;
+      convsLoaded = true;
+      document.getElementById('convs-sub')!.textContent = 'Carregando…';
+      loadObservability({ withConversations: true });
+    });
 
     function renderObservability(data: ObservabilityResponse) {
       // OpenAI card
@@ -1458,7 +1498,9 @@ import Base from '../../layouts/Base.astro';
       if (pct >= 90) bar.classList.add('crit');
       else if (pct >= 70) bar.classList.add('warn');
 
-      // Conversations
+      // Conversas: só vêm quando a seção é aberta
+      if (!data.conversations) return;
+
       const sub = document.getElementById('convs-sub')!;
       sub.textContent = `${data.conversations.activeLast24h} ativa${data.conversations.activeLast24h === 1 ? '' : 's'} nas últimas 24h · ${data.conversations.totalTracked} contatos registrados`;
 
@@ -1976,7 +2018,13 @@ import Base from '../../layouts/Base.astro';
     document.getElementById('refresh-btn')?.addEventListener('click', () => {
       const btn = document.getElementById('refresh-btn') as HTMLButtonElement;
       btn.style.opacity = '0.5';
-      Promise.all([loadStats(), loadOptOuts(), loadObservability(), loadBrain(), loadBroadcasts()]).finally(() => { btn.style.opacity = ''; });
+      Promise.all([
+        loadStats(),
+        loadOptOuts(),
+        loadObservability({ withConversations: convsDetails?.open ?? false }),
+        loadBrain(),
+        loadBroadcasts(),
+      ]).finally(() => { btn.style.opacity = ''; });
     });
     document.getElementById('logout-btn')?.addEventListener('click', async () => {
       await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
