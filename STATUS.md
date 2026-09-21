@@ -230,7 +230,17 @@ Três coisas descobertas em 2026-09-20:
 
    Corrigido em `55a5eaa` com `MAX_ENVIOS_POR_INVOCACAO = 45`: `sendGroup` devolve se o grupo terminou e, se parou no teto, a fila não avança — o próximo tick retoma pelo cursor já salvo. Com 235 contatos são ~6 ticks, no máximo 40 chamadas por invocação.
 
-   💡 **Assinar o Workers Paid (US$5/mês) eleva esse limite para 10.000 e elimina a restrição de vez.** Enquanto for plano gratuito, qualquer coisa que faça muitas chamadas externas numa invocação vai bater nesse teto — vale lembrar disso ao crescer a lista.
+   ✅ **Workers Paid assinado em 2026-09-22** (US$5/mês), o que eleva o limite de 50 para 10.000 chamadas e tira o teto de 1.000 escritas/dia do KV. Com isso `MAX_ENVIOS_POR_INVOCACAO` subiu para 200 e cada grupo volta a caber numa invocação só — o espaçamento real volta a ser os 10 minutos pretendidos.
+
+   **Cuidado ao escolher o plano:** o que resolve é o **Workers Paid**, de nível de conta, em `dash.cloudflare.com/?to=/:account/workers/plans`. Não confundir com o plano **Pro do domínio (US$20)**, com **Additional Page Rules** nem com **APO** — nenhum deles toca em KV ou Workers.
+
+   **Medir em vez de supor:**
+   ```
+   /health?token=<AI_UAZAPI_TOKEN>&probe=subrequests
+   ```
+   Faz 70 chamadas externas numa invocação e diz quantas passaram. 70/70 = plano pago; travar em ~50 = gratuito. Foi assim que a assinatura foi confirmada, e serve para detectar se a conta voltar ao plano gratuito.
+
+   Se isso acontecer, baixe `MAX_ENVIOS_POR_INVOCACAO` para 45: o disparo continua entregando tudo, só usando mais ticks.
 
    **Como identificar quem não recebeu** (o registro só guarda a contagem, não a lista): buscar no `/message/find` da lux as mensagens `fromMe` do dia cujo texto casa com o do `broadcast:job:`, e tirar a diferença contra `job.targets`. Foi assim que os 85 foram encontrados e **reenviados manualmente em 2026-09-22 às 10:01**, com 100% de entrega.
 

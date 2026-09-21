@@ -58,12 +58,17 @@ const BATCH_SIZE = 10;
 // a Uazapi passou a recusar: 86 de 235 falharam em 2026-09-21. O freio agora
 // é explícito.
 const BATCH_PAUSE_MS = 6000;
-// ⛔ O limite que de fato quebrou o disparo de 2026-09-21: o plano gratuito do
-// Workers permite **50 chamadas externas por invocação**. Cada grupo tinha 79
-// contatos, e em TODOS os três exatamente os 50 primeiros chegaram e os demais
-// falharam. Mantemos folga abaixo de 50; o que sobrar do grupo continua no
-// tick seguinte, pelo cursor já salvo.
-const MAX_ENVIOS_POR_INVOCACAO = 45;
+// Teto de envios por invocação. Dois limites em jogo:
+//   - chamadas externas: 50 no plano gratuito (foi o que quebrou o disparo de
+//     2026-09-21, com exatamente os 50 primeiros de cada grupo chegando),
+//     10.000 no Workers Paid, assinado em 2026-09-22 e medido com
+//     /health?probe=subrequests
+//   - relógio: 15 min por invocação. Com a pausa de 6s entre lotes, 200 envios
+//     levam ~8 min, ainda com folga
+// O que passar do teto continua no tick seguinte, pelo cursor já salvo — então
+// mesmo que a conta volte ao plano gratuito, o disparo entrega tudo, só mais
+// devagar. Se isso acontecer, baixe para 45.
+const MAX_ENVIOS_POR_INVOCACAO = 200;
 /** Quantos erros distintos guardar por grupo, para diagnóstico. */
 const MAX_ERROS_AMOSTRA = 5;
 // Espaçamento entre grupos, pedido do cliente — evita parecer disparo em massa.
@@ -227,6 +232,31 @@ async function health(env: Env, url: URL): Promise<Response> {
     uazapi = res.ok ? 'ok' : `HTTP ${res.status}`;
   } catch (err) {
     uazapi = `falhou: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  // ?probe=subrequests mede o teto real de chamadas externas por invocação —
+  // 50 no plano gratuito, milhares no pago. Foi esse limite, invisível até
+  // 2026-09-22, que derrubou 86 envios do devocional. Mede em vez de supor.
+  if (url.searchParams.get('probe') === 'subrequests') {
+    const ALVO = 70;
+    let okCount = 0;
+    let primeiroErro = '';
+    for (let i = 0; i < ALVO; i++) {
+      try {
+        const r = await fetch(`https://cloudflare.com/cdn-cgi/trace?i=${i}`);
+        await r.text();
+        okCount++;
+      } catch (err) {
+        primeiroErro = `na chamada ${i + 1}: ${err instanceof Error ? err.message : String(err)}`;
+        break;
+      }
+    }
+    return ok({
+      chamadasFeitas: okCount,
+      tentadas: ALVO,
+      primeiroErro: primeiroErro || null,
+      plano: okCount >= ALVO ? 'pago (limite alto)' : `gratuito ou limitado em ~${okCount}`,
+    });
   }
 
   const queue = await readJson<Queue>(env, QUEUE_KEY);
