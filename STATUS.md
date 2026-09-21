@@ -206,7 +206,17 @@ Três coisas descobertas em 2026-09-20:
 
    **Desenho decidido (ideia do cliente, 2026-09-20): 3 grupos com 10 minutos de intervalo, num Worker separado com Cron Trigger.** Não dá pra fazer no Pages Functions porque não existe como esperar 10 minutos ali (`waitUntil` tem teto de 30s — é essa limitação que gerou o encadeamento, que gerou o limite de hops, que gerou as faixas, que gerou a corrida com o KV). Cron Trigger tem **15 minutos de execução** e 30s de CPU (envio é espera de rede, quase não gasta CPU), então um grupo de 74 contatos (~107s) cabe folgado. O webhook só grava o trabalho no KV e responde; o Worker acorda de 5 em 5 minutos, vê se chegou a hora do próximo grupo, envia e agenda o seguinte. Some o encadeamento, some o limite de 16 hops, some a corrida (o cron roda minutos depois da escrita) e some o pico de 18 conexões. Custo: segundo alvo de deploy, `wrangler login` ou deploy no CI.
 
-   **Estado: ✅ NO AR desde 2026-09-20.** O Worker foi deployado e o lado do Pages já foi trocado para só enfileirar. `runChunk`, `chainNext`, `recordChainError` e o endpoint `broadcast-resume` foram apagados. **Falta validar em produção no disparo seguinte.**
+   **Estado: ✅ NO AR e verificado em 2026-09-20.** Worker `zapdafe-broadcast` deployado (cron `*/5 * * * *`), secrets conferidos, e o lado do Pages trocado para só enfileirar. `runChunk`, `chainNext`, `recordChainError` e o endpoint `broadcast-resume` foram apagados. **Falta só a validação no primeiro disparo real.**
+
+   **Health check — use sempre que mexer no Worker:**
+   ```
+   https://zapdafe-broadcast.brucnascimento.workers.dev/health?token=<AI_UAZAPI_TOKEN>
+   ```
+   Devolve `kv`, `uazapi`, a `base` configurada, `tokenChars` e a fila atual. Autenticado com o próprio token, então não expõe nada a quem já não o tivesse.
+
+   ⚠️ **Por que ele existe, e a lição junto:** ao configurar os secrets pela primeira vez, o prompt interativo do `wrangler secret put` gravou `AI_UAZAPI_BASE` como `uu\x16ndefinedndefined` — o `\x16` é o código do **Ctrl+V**, que o terminal inseriu como caractere em vez de colar. O `wrangler secret list` só mostra nomes, então nada denunciaria isso: o devocional simplesmente falharia com "Invalid URL" no dia seguinte.
+
+   Pior: o secret quebrado exibiu **20 asteriscos** e pareceu certo, enquanto o que exibiu **1 asterisco** e levantou suspeita estava correto. O visual do prompt não serve para nada. **Sempre configure secret por stdin** — `"valor" | npx wrangler secret put NOME` — e confirme no `/health`.
 
    Detalhes do que foi: Código em `worker/` (`wrangler.toml` + `src/index.ts`). Ele lê o mesmo namespace KV do Pages e mantém o formato `broadcast:lane:<messageId>:<lane>`, então o painel continua funcionando sem mudança. Progresso é salvo **a cada lote de 10**, então se a invocação morrer no meio o próximo tick retoma do cursor (perda máxima: os 10 do lote em voo, que podem duplicar).
 
