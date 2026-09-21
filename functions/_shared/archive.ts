@@ -177,6 +177,11 @@ export async function runArchive(
  */
 export function archiveIsStale(meta: ArchiveMeta, maxAgeHours = 6): boolean {
   if (!meta.lastArchiveISO) return true;
+  // Arquivo gravado antes da migração de fonte (só tinha campanha360). Força
+  // uma passada agora em vez de esperar a janela de 6h — senão a troca para a
+  // luxprodutora só teria efeito horas depois de ir ao ar, sem explicação
+  // visível no painel.
+  if (!meta.highWaterBySource) return true;
   const ageMs = Date.now() - Date.parse(meta.lastArchiveISO);
   return ageMs > maxAgeHours * 60 * 60 * 1000;
 }
