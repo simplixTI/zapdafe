@@ -4,8 +4,28 @@ import type { Env } from './auth';
 // Anything before this is ignored (pre-launch / testing data).
 export const CUTOFF_MS = Date.parse('2026-08-15T00:00:00-03:00');
 
-export function headers(env: Env): Record<string, string> {
-  return { token: env.UAZAPI_TOKEN, 'Content-Type': 'application/json' };
+/**
+ * Credenciais de uma instância. Existem duas: a antiga (campanha360), cujos
+ * dados viraram backlog congelado, e a luxprodutora, que é onde a IA vive e de
+ * onde vem tudo que entra de novo.
+ */
+export interface UazapiCreds {
+  base: string;
+  token: string;
+  /** Rótulo usado para guardar o high-water separado por instância. */
+  source: 'campanha360' | 'lux';
+}
+
+export function legacyCreds(env: Env): UazapiCreds {
+  return { base: env.UAZAPI_BASE, token: env.UAZAPI_TOKEN, source: 'campanha360' };
+}
+
+export function aiCreds(env: Env): UazapiCreds {
+  return { base: env.AI_UAZAPI_BASE, token: env.AI_UAZAPI_TOKEN, source: 'lux' };
+}
+
+export function headers(creds: UazapiCreds): Record<string, string> {
+  return { token: creds.token, 'Content-Type': 'application/json' };
 }
 
 export interface UazapiContact {
@@ -49,19 +69,19 @@ interface ChatFindResponse {
   chats: UazapiChat[];
 }
 
-export async function fetchContacts(env: Env): Promise<UazapiContact[]> {
-  const res = await fetch(`${env.UAZAPI_BASE}/contacts`, {
+export async function fetchContacts(creds: UazapiCreds): Promise<UazapiContact[]> {
+  const res = await fetch(`${creds.base}/contacts`, {
     method: 'GET',
-    headers: headers(env),
+    headers: headers(creds),
   });
   if (!res.ok) throw new Error(`Uazapi /contacts ${res.status}`);
   return res.json() as Promise<UazapiContact[]>;
 }
 
-export async function fetchAllChats(env: Env): Promise<UazapiChat[]> {
-  const res = await fetch(`${env.UAZAPI_BASE}/chat/find`, {
+export async function fetchAllChats(creds: UazapiCreds): Promise<UazapiChat[]> {
+  const res = await fetch(`${creds.base}/chat/find`, {
     method: 'POST',
-    headers: headers(env),
+    headers: headers(creds),
     body: JSON.stringify({}),
   });
   if (!res.ok) throw new Error(`Uazapi /chat/find ${res.status}`);
@@ -81,7 +101,7 @@ export interface FetchMessagesResult {
  * Fetches all messages since CUTOFF_MS using offset-based pagination.
  * Uazapi returns hasMore=true when there are more results at higher offsets.
  */
-export async function fetchMessagesSinceCutoff(env: Env): Promise<FetchMessagesResult> {
+export async function fetchMessagesSinceCutoff(creds: UazapiCreds): Promise<FetchMessagesResult> {
   const all: UazapiMessage[] = [];
   const seen = new Set<string>();
   const LIMIT = 500;
@@ -97,9 +117,9 @@ export async function fetchMessagesSinceCutoff(env: Env): Promise<FetchMessagesR
       offset: page * LIMIT,
     };
 
-    const res = await fetch(`${env.UAZAPI_BASE}/message/find`, {
+    const res = await fetch(`${creds.base}/message/find`, {
       method: 'POST',
-      headers: headers(env),
+      headers: headers(creds),
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`Uazapi /message/find ${res.status}`);

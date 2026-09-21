@@ -20,7 +20,15 @@ export interface ArchiveDay {
 
 export interface ArchiveMeta {
   lastArchiveISO: string;
+  /** High-water da campanha360. Mantido pelo histórico; hoje quem manda é o mapa abaixo. */
   highWaterMs: number;
+  /**
+   * Um high-water por instância. Com um só, ao trocar a fonte para a
+   * luxprodutora toda mensagem anterior ao último registro da campanha360
+   * seria descartada em silêncio — o arquivo pareceria funcionar e simplesmente
+   * não somaria nada.
+   */
+  highWaterBySource?: Record<string, number>;
   totalMessagesEver: number;
   totalContactsEver: number;
 }
@@ -73,6 +81,7 @@ export async function runArchive(
   env: Env,
   messages: UazapiMessage[],
   chats: UazapiChat[],
+  source: string = 'campanha360',
 ): Promise<ArchiveData> {
   const archive = await readArchive(env);
 
@@ -82,7 +91,11 @@ export async function runArchive(
     chatByJid.set(jid, c);
   }
 
-  const highWater = archive.meta.highWaterMs || 0;
+  // A campanha360 herda o high-water antigo; qualquer instância nova começa do
+  // zero e varre tudo desde o CUTOFF.
+  const bySource = { ...(archive.meta.highWaterBySource ?? {}) };
+  const highWater =
+    bySource[source] ?? (source === 'campanha360' ? archive.meta.highWaterMs || 0 : 0);
   let newHighWater = highWater;
   let newMessages = 0;
 
@@ -139,9 +152,12 @@ export async function runArchive(
     archive.days[key].startedConvos++;
   }
 
+  bySource[source] = newHighWater;
   archive.meta = {
     lastArchiveISO: new Date().toISOString(),
-    highWaterMs: newHighWater,
+    // Congelado no valor da campanha360: é o backlog, e nada mais entra por lá
+    highWaterMs: source === 'campanha360' ? newHighWater : archive.meta.highWaterMs || 0,
+    highWaterBySource: bySource,
     totalMessagesEver: (archive.meta.totalMessagesEver || 0) + newMessages,
     totalContactsEver: Object.keys(archive.contacts).length,
   };

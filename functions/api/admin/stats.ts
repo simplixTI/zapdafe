@@ -1,6 +1,7 @@
 import type { Env } from '../../_shared/auth';
 import {
   CUTOFF_MS,
+  aiCreds,
   fetchAllChats,
   fetchMessagesSinceCutoff,
 } from '../../_shared/uazapi';
@@ -99,14 +100,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // 2. If archive is stale, refresh from Uazapi
     if (archiveIsStale(archive.meta)) {
+      // Só a luxprodutora daqui pra frente. O que veio da campanha360 já está
+      // no arquivo e continua contando — runArchive mescla, não substitui.
+      const creds = aiCreds(env);
       const [chats, messagesResult] = await Promise.all([
-        fetchAllChats(env),
-        fetchMessagesSinceCutoff(env),
+        fetchAllChats(creds),
+        fetchMessagesSinceCutoff(creds),
       ]);
       uazapiFetchPages = messagesResult.pagesFetched;
       uazapiHasMore = messagesResult.hasMore;
       uazapiOldestMs = messagesResult.oldestFetchedMs;
-      archive = await runArchive(env, messagesResult.messages, chats);
+      archive = await runArchive(env, messagesResult.messages, chats, creds.source);
       archiveJustRan = true;
     }
 
