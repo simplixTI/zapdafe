@@ -46,7 +46,12 @@ interface UazapiWebhookPayload {
   [k: string]: unknown;
 }
 
-const MAX_TEXT_LEN_FOR_VOICE = 450;
+// Acima disso a resposta vira áudio.
+const MAX_TEXT_LEN_FOR_VOICE = 455;
+// Teto de cada áudio. Bem maior que o gatilho de propósito: se fosse igual,
+// uma resposta de 500 caracteres viraria dois áudios em vez de um. Só quebra
+// em fim de frase, então o normal é sair um áudio só.
+const VOICE_CHUNK_MAX = 1200;
 
 const OPT_OUT_CONFIRMATION =
   'Tudo bem. Não vou te enviar mais mensagens. Se um dia quiser conversar de novo, é só me chamar por aqui.';
@@ -138,7 +143,7 @@ function extractSpotifyLink(reply: string, tracks: Track[]): { textOnly: string;
 }
 
 async function respondAsVoice(env: Env, chatid: string, text: string): Promise<void> {
-  const chunks = splitForVoice(text, MAX_TEXT_LEN_FOR_VOICE);
+  const chunks = splitForVoice(text, VOICE_CHUNK_MAX);
   for (const chunk of chunks) {
     try {
       const audioB64 = await synthesize(env, chunk);

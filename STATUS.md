@@ -63,7 +63,8 @@ Recebe da instância Uazapi **luxprodutora**. Fluxo:
 - Regras rígidas no prompt: sem emoji nunca, sem reação, música SÓ da playlist Zapdafé
 - GPT-4o-mini responde
 - Se resposta tem link Spotify: separa em 2 mensagens (texto + link) pra WhatsApp renderizar cartão
-- Se resposta >450 chars: TTS ElevenLabs em blocos por frase. **Se o TTS falhar, cada bloco vira uma mensagem de texto separada** — é por isso que, com a chave do ElevenLabs quebrada, a resposta longa chega picotada no WhatsApp, às vezes com pedaço começando em minúscula (o splitter corta em todo ponto final, inclusive dentro de aspas)
+- Se resposta **>455 chars**: TTS ElevenLabs. Cada áudio vai até 1200 caracteres (`VOICE_CHUNK_MAX`), bem acima do gatilho de propósito — se os dois fossem iguais, uma resposta de 500 caracteres viraria dois áudios. Na prática a resposta típica sai num áudio só. **Se o TTS falhar, cada bloco vira uma mensagem de texto separada**, que é o sintoma de resposta picotada quando a chave do ElevenLabs está errada
+- `splitSentences()` quebra só em fim de frase de verdade. Na dúvida NÃO quebra: trecho maior é inofensivo, frase partida ao meio não é. Não corta em abreviação ("Pr. Everaldo", "Sra. Maria"), inicial solta ("J. Silva"), número ("1.500"), reticências no meio da frase, nem ponto seguido de minúscula (`'ele disse "..." e isso me acalmou'`). A versão anterior cortava em todo ponto final, inclusive dentro de aspas, e ainda comia dois pontos das reticências
 
 **Broadcast branch:**
 - Dedupe via `broadcast:sent:<messageId>` (evita re-entrega do Uazapi)
