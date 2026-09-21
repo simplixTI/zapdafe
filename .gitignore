@@ -34,3 +34,6 @@ data/*.txt
 # source PDFs (large, not code)
 public/NTLH.pdf
 bibilia.pdf
+
+# backups do KV — contêm telefones de contatos, nunca commitar
+backup/

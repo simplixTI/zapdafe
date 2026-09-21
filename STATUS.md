@@ -250,7 +250,36 @@ Três coisas descobertas em 2026-09-20:
 
    ⚠️ **Nunca apague `arch:meta`.** Sem ela, `readArchive` devolve zeros e o backlog de 7.882 mensagens é recontado do zero. Para forçar uma passada, envelheça o `lastArchiveISO` — não delete a chave.
 
-   **Se os números continuarem parados**, pare de mexer no painel e vá na origem: chame `/message/find` e `/chat/find` da luxprodutora pelo terminal com o `AI_UAZAPI_TOKEN` e veja o que ela devolve. A dúvida aberta é se o problema está no nosso código ou no que a Uazapi entrega para essa instância — e isso o painel nunca vai responder.
+   **Resolvido em 2026-09-21 00:20:** o arquivo migrou (`arch:meta` ganhou `highWaterBySource`), passando para 235 contatos e 8.882 mensagens. Mas a investigação revelou duas coisas muito mais importantes que os números.
+
+### 🔴 A Uazapi guarda pouco histórico — o arquivo KV é insubstituível
+
+Medido em 2026-09-21 chamando `/message/find` direto nas duas instâncias:
+
+| Instância | Mensagens disponíveis | Mais antiga |
+|---|---|---|
+| campanha360 | ~1.957 | 13/09/26 |
+| luxprodutora | ~2.500 | 13/09/26 |
+
+O arquivo em KV tem **7.882 mensagens desde 15/08**. Ou seja, a Uazapi retém só as ~2.000 mais recentes (cerca de 8 dias) e **todo o histórico anterior existe somente no nosso KV**.
+
+⚠️ **NUNCA reconstrua o arquivo do zero.** Um "rebuild" reduziria 7.882 para ~1.957 e apagaria meses de dados, sem forma de recuperar. Pelo mesmo motivo, nunca apague `arch:meta`, `arch:contacts`, `arch:days` ou `arch:hourly`.
+
+**Backup:** existe uma cópia local em `backup/` (fora do git — tem telefone de contato). Refazer periodicamente:
+```bash
+NS=71f423871ba94149a3bb8f67b4af9642
+for k in arch:contacts arch:days arch:hourly arch:meta optouts:list rules:brain; do
+  npx wrangler kv key get --namespace-id $NS --remote "$k" > "backup/${k//:/_}-$(date -u +%Y%m%d).json"
+done
+```
+
+### 🔴 A Uazapi mente no `hasMore`
+
+Ela devolve `hasMore: false` em **todos** os offsets, mesmo com páginas cheias atrás: no offset 1000 retorna 500 mensagens e diz que acabou; idem em 1500 e 2000; só no 3000 vem vazio. Confiando nela, a primeira leitura da lux trouxe 1.000 de ~2.500 — sem erro nenhum, números plausíveis e errados.
+
+Corrigido em `4948716`: pagina enquanto a página vier cheia, para quando vier incompleta. **Se for integrar qualquer outro endpoint da Uazapi, não confie em campo de paginação dela.**
+
+**Pendência conhecida:** faltam ~1.500 mensagens da lux (13 a 19/09) que a leitura truncada não trouxe. Como o arquivo pula por marca de tempo, ele não volta sozinho. Recuperar exigiria zerar `highWaterBySource.lux`, o que recontaria as 1.000 já registradas. Decisão de 2026-09-21: **deixar como está** — os totais ficam ~1.500 abaixo do real no histórico, e tudo novo entra certo.
 
 4. **RAG bíblia**: alguns versos podem diferir de contagem canônica em ±0.2% (Almeida vs KJV varia levemente). Aceitável pro uso RAG.
 5. **Corrigir nome de contato** — ✅ RESOLVIDO em 2026-09-20. Seção "Corrigir nome de um contato" no Cérebro do `/admin`, sobre `GET/POST /api/admin/contact-name`. O "Ver o que está salvo" mostra o nome no KV **e** se a trava de `names.ts` o aceita — é assim que se enxerga o caso clássico de um nome salvo que a IA silenciosamente ignora. Os dois casos conhecidos já foram corrigidos direto no KV: Cleonice (`554998208611`) e Toninho (`5522998225733`).
