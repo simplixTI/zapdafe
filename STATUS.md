@@ -204,7 +204,9 @@ O cliente colou a lista inteira no `/admin` → Cérebro → Instruções. **Met
 
 ⚠️ **Duas coisas continuam do lado do painel, não do código:**
 1. As duas últimas linhas da lista do cliente (a do "Se precisar falar mais, estou aqui" e a do "Amém depois do encerramento") **não foram coladas** nas instruções. O comportamento das duas já está no código, mas o painel não reflete a lista completa.
-2. A regra do cérebro de "obrigado/obrigada" responde *"Por nada {nome}. Estou aqui sempre que precisar."* — ou seja, repete a frase de disponibilidade toda vez que alguém agradece, que é a reclamação do cliente. O corte de repetição não alcança regra fixa. Sugestão: trocar por *"Por nada, {nome}. Que Deus te abençoe."*
+2. ✅ **Resolvido em 2026-09-22.** A regra do cérebro de "obrigado/obrigada" respondia *"Por nada {nome}. Estou aqui sempre que precisar."* — repetia a frase de disponibilidade toda vez que alguém agradecia, que é a reclamação do cliente, e o corte de repetição **não alcança regra fixa** (ela responde antes da IA). Trocada no KV por *"Por nada, {nome}. Que Deus te abençoe."*
+
+   Lição para qualquer regra nova no painel: o que está no cérebro escapa de todo controle de tom do prompt. Se a frase não puder se repetir, ela não pode ser uma regra fixa.
 
 ## Regras de comportamento (system prompt do LLM)
 
