@@ -28,3 +28,23 @@ export function isOptOutIntent(text: string): boolean {
   const normalized = normalizeText(text);
   return INTENT_PATTERNS.some((re) => re.test(normalized));
 }
+
+// Aceno de fim de conversa. Depois de uma mensagem de encerramento, isso não é
+// uma fala nova — é a pessoa dizendo "recebi". Responder aqui é exatamente o
+// que o cliente chamou de provocar diálogo (pedido de 2026-09-22).
+//
+// A lista é curta de propósito. "Sim", "isso" e "tudo bem" ficaram de fora
+// porque podem estar respondendo a uma pergunta, e "obrigado" tem regra
+// própria no cérebro.
+const ACKNOWLEDGEMENTS = new Set([
+  'ok', 'okay', 'oky', 'okey', 'ta', 'ta bom', 'ta bem', 'ta certo', 'tabom',
+  'blz', 'beleza', 'belezura', 'certo', 'combinado', 'fechou', 'fechado',
+  'pode deixar', 'pode deixar sim', 'tranquilo', 'tranquila', 'suave',
+  'valeu', 'vlw', 'amem', 'amem amem', 'amem amem amem',
+]);
+
+/** True quando a mensagem inteira é só um aceno de recebido. */
+export function isAcknowledgement(text: string): boolean {
+  const normalized = normalizeText(text);
+  return normalized.length > 0 && ACKNOWLEDGEMENTS.has(normalized);
+}

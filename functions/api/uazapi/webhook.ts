@@ -14,11 +14,14 @@ import { searchBibleVerses, formatBibleContext } from '../../_shared/bible-rag';
 import { buildSystemPrompt, chat, extractName, type ChatMessage } from '../../_shared/llm';
 import { sendText, sendTyping, type UazapiEnv } from '../../_shared/uazapi-send';
 import { synthesize, sendVoice, splitForVoice } from '../../_shared/voice';
-import { loadHistory, appendMessage, loadProfile, updateProfile } from '../../_shared/conversation';
+import {
+  loadHistory, appendMessage, loadProfile, updateProfile, type ContactProfile,
+} from '../../_shared/conversation';
 import { getPlaylistTracks, formatPlaylistForPrompt, type Track } from '../../_shared/spotify';
 import { runBroadcast } from '../../_shared/broadcast';
 import { isOptedOut, addOptOut } from '../../_shared/optouts';
-import { isOptOutCommand, isOptOutIntent } from '../../_shared/intents';
+import { isOptOutCommand, isOptOutIntent, isAcknowledgement } from '../../_shared/intents';
+import { containsOffer, looksLikeClosing, stripOfferSentences, withinHours } from '../../_shared/tone';
 import { loadBrain, matchReply, renderResponse, type ReplyRule } from '../../_shared/rules';
 import { plausibleFirstName, namedAsSomeoneElse, looksLikeNameQuestion } from '../../_shared/names';
 
@@ -47,11 +50,21 @@ interface UazapiWebhookPayload {
 }
 
 // Acima disso a resposta vira áudio.
-const MAX_TEXT_LEN_FOR_VOICE = 455;
+//
+// Subiu de 455 para 900 em 2026-09-22: o cliente passou a exigir versículo em
+// todo conselho, e versículo citado com referência empurra quase toda resposta
+// para além de 455. Com o valor antigo, o acolhimento em crise chegaria como
+// áudio — e o número do CVV, que a pessoa precisa LER e discar, junto.
+const MAX_TEXT_LEN_FOR_VOICE = 900;
 // Teto de cada áudio. Bem maior que o gatilho de propósito: se fosse igual,
-// uma resposta de 500 caracteres viraria dois áudios em vez de um. Só quebra
-// em fim de frase, então o normal é sair um áudio só.
-const VOICE_CHUNK_MAX = 1200;
+// uma resposta logo acima do gatilho viraria dois áudios em vez de um. Só
+// quebra em fim de frase, então o normal é sair um áudio só.
+const VOICE_CHUNK_MAX = 2000;
+
+// Por quanto tempo um "ok"/"amém" conta como eco da mensagem de encerramento.
+// Curto de propósito: o "amém" da manhã seguinte responde ao devocional do dia,
+// não fecha a conversa de ontem — esse continua sendo respondido pelo cérebro.
+const ACK_SILENCE_WINDOW_HOURS = 6;
 
 const OPT_OUT_CONFIRMATION =
   'Tudo bem. Não vou te enviar mais mensagens. Se um dia quiser conversar de novo, é só me chamar por aqui.';
@@ -192,10 +205,19 @@ async function handleOptOut(env: Env, chatid: string, phone: string): Promise<vo
 }
 
 // Canned replies skip the history write on purpose: the whole point of a rule
-// is to answer without spending tokens or KV writes on an "amém".
+// is to answer without spending tokens on an "amém". A regra grava uma única
+// chave (o marcador de encerramento) porque sem ela o pedido de silêncio do
+// cliente nunca se cumpriria — o aceno seguinte cairia direto na IA.
 async function handleRuleReply(env: Env, chatid: string, rule: ReplyRule): Promise<void> {
   const name = await resolveContactName(env, chatid);
-  await respondAsText(env, chatid, renderResponse(rule.response, name));
+  const response = renderResponse(rule.response, name);
+  await respondAsText(env, chatid, response);
+  // As regras do painel são todas bênção de despedida ("Amém, que Deus
+  // continue abençoando"). Marcar aqui é o que faz o "ok" seguinte cair no
+  // silêncio — sem isso, a regra responde e o aceno volta pra IA.
+  if (looksLikeClosing(response)) {
+    await updateProfile(env, chatid, { closingAtISO: new Date().toISOString() });
+  }
 }
 
 async function handleConversation(
@@ -255,12 +277,17 @@ async function handleConversation(
   }
   const isFirstMessage = treatAsFirstMessage;
 
+  // "Estou aqui se precisar" é uma frase por dia, não por resposta. O prompt
+  // pede pra não repetir; o corte determinista mais abaixo garante.
+  const alreadyOfferedRecently = withinHours(profile.lastOfferAtISO, 24);
+
   const systemContent = buildSystemPrompt({
     bibleContext: formatBibleContext(verses),
     isFirstMessage,
     contactName,
     playlistContext: formatPlaylistForPrompt(tracks),
     extraInstructions,
+    alreadyOfferedRecently,
   });
   const messages: ChatMessage[] = [
     { role: 'system', content: systemContent },
@@ -271,19 +298,31 @@ async function handleConversation(
   const reply = await chat(env, messages, { maxTokens: 500, temperature: 0.75 });
   if (!reply) return;
 
-  // Persist history and touch profile timestamps
-  await appendMessage(env, chatid, { role: 'user', content: userText });
-  await appendMessage(env, chatid, { role: 'assistant', content: reply });
-  await updateProfile(env, chatid, {});
-
   // Separate any Spotify link so we can send text first, then link as its
   // own message (WhatsApp then renders a preview card for the link).
   const { textOnly, validUrl } = extractSpotifyLink(reply, tracks);
 
-  if (textOnly.length > MAX_TEXT_LEN_FOR_VOICE) {
-    await respondAsVoice(env, chatid, textOnly);
-  } else if (textOnly) {
-    await respondAsText(env, chatid, textOnly);
+  // Se o modelo se ofereceu de novo dentro das 24h, a frase sai fora. O prompt
+  // já pede isso, mas pedir não é garantir — e repetição era a reclamação.
+  let finalText = textOnly;
+  if (alreadyOfferedRecently && containsOffer(finalText)) {
+    finalText = stripOfferSentences(finalText) ?? finalText;
+  }
+
+  const nowISO = new Date().toISOString();
+  const patch: Partial<ContactProfile> = {};
+  if (containsOffer(finalText)) patch.lastOfferAtISO = nowISO;
+  if (looksLikeClosing(finalText)) patch.closingAtISO = nowISO;
+
+  // Persist history and touch profile timestamps
+  await appendMessage(env, chatid, { role: 'user', content: userText });
+  await appendMessage(env, chatid, { role: 'assistant', content: reply });
+  await updateProfile(env, chatid, patch);
+
+  if (finalText.length > MAX_TEXT_LEN_FOR_VOICE) {
+    await respondAsVoice(env, chatid, finalText);
+  } else if (finalText) {
+    await respondAsText(env, chatid, finalText);
   }
 
   if (validUrl) {
@@ -385,6 +424,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ ok: true, kind: 'opt_out_nudge' }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
+  }
+
+  // Aceno depois da mensagem de encerramento ("ok", "blz", "pode deixar",
+  // "amém") não pede resposta — responder aí é justamente o que o cliente
+  // chamou de provocar diálogo. Vem antes do cérebro porque "amém" tem regra
+  // fixa lá, que fora desse contexto continua valendo.
+  if (isAcknowledgement(text)) {
+    const profile = await loadProfile(env, chatid);
+    if (withinHours(profile.closingAtISO, ACK_SILENCE_WINDOW_HOURS)) {
+      return new Response(JSON.stringify({ ok: true, kind: 'ack_after_closing' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
   }
 
   const brain = await loadBrain(env);

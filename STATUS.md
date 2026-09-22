@@ -68,7 +68,7 @@ Recebe da instância Uazapi **luxprodutora**. Fluxo:
 - Regras rígidas no prompt: sem emoji nunca, sem reação, música SÓ da playlist Zapdafé
 - GPT-4o-mini responde
 - Se resposta tem link Spotify: separa em 2 mensagens (texto + link) pra WhatsApp renderizar cartão
-- Se resposta **>455 chars**: TTS ElevenLabs. Cada áudio vai até 1200 caracteres (`VOICE_CHUNK_MAX`), bem acima do gatilho de propósito — se os dois fossem iguais, uma resposta de 500 caracteres viraria dois áudios. Na prática a resposta típica sai num áudio só. **Se o TTS falhar, cada bloco vira uma mensagem de texto separada**, que é o sintoma de resposta picotada quando a chave do ElevenLabs está errada
+- Se resposta **>900 chars**: TTS ElevenLabs. Cada áudio vai até 2000 caracteres (`VOICE_CHUNK_MAX`), bem acima do gatilho de propósito — se os dois fossem iguais, uma resposta de 500 caracteres viraria dois áudios. Na prática a resposta típica sai num áudio só. **Se o TTS falhar, cada bloco vira uma mensagem de texto separada**, que é o sintoma de resposta picotada quando a chave do ElevenLabs está errada
 - `splitSentences()` quebra só em fim de frase de verdade. Na dúvida NÃO quebra: trecho maior é inofensivo, frase partida ao meio não é. Não corta em abreviação ("Pr. Everaldo", "Sra. Maria"), inicial solta ("J. Silva"), número ("1.500"), reticências no meio da frase, nem ponto seguido de minúscula (`'ele disse "..." e isso me acalmou'`). A versão anterior cortava em todo ponto final, inclusive dentro de aspas, e ainda comia dois pontos das reticências
 
 **Broadcast branch** (só enfileira — quem envia é o Worker):
@@ -89,8 +89,11 @@ Recebe da instância Uazapi **luxprodutora**. Fluxo:
 1. Já é opt-out → silêncio total
 2. Comando `/sair` ou `/parar` (com ou sem barra) → entra na lista de opt-out + confirmação fixa
 3. Linguagem ambígua de saída ("não quero mais receber", "descadastra") → **não** opta sozinho, só orienta a digitar o comando
-4. Regra do cérebro (gatilho exato) → resposta fixa, sem gastar token
-5. Nada disso → conversa normal com a IA
+4. **Aceno depois do encerramento** ("ok", "blz", "pode deixar", "amém") → silêncio total
+5. Regra do cérebro (gatilho exato) → resposta fixa, sem gastar token
+6. Nada disso → conversa normal com a IA
+
+O passo 4 vem **antes** do cérebro de propósito: "amém" tem regra fixa lá, e ela continua valendo fora do contexto de encerramento.
 
 ### 5. Cérebro — regras geridas pelo cliente no `/admin`
 Seção "Cérebro" no painel, guardada em `rules:brain` no KV. Duas partes:
@@ -173,15 +176,49 @@ Três coisas descobertas em 2026-09-20:
 - Escutar: `messages`
 - Excluir: `wasSentByApi`, `isGroupYes`
 
+### Ajustes pedidos pelo cliente em 2026-09-22 (depois dos testes dele)
+
+O cliente colou a lista inteira no `/admin` → Cérebro → Instruções. **Metade dos pedidos não funciona por instrução de texto** — três pediam silêncio (e o código sempre envia o que o LLM devolve) e dois brigavam com o prompt base. O que foi feito de cada um:
+
+| Pedido | Onde resolveu |
+|---|---|
+| 1º contato: saudação + pergunta o nome, nada mais | `buildSystemPrompt`: o `openingRule` pedia também "convide para conversar", que era exatamente a pergunta que ele mandou tirar |
+| Não provocar diálogo ("Como posso te ajudar?") | Seção nova **"Você NÃO puxa conversa"** no prompt base, com as frases proibidas nominalmente. A única pergunta permitida é a do nome |
+| "ok/blz/pode deixar" depois do encerramento → não responder | `isAcknowledgement()` + marca `closingAtISO` no perfil. **Impossível no prompt** |
+| Não repetir "estou aqui se precisar" (1x/24h) | `lastOfferAtISO` no perfil: o prompt avisa, e `stripOfferSentences()` corta a frase se o modelo insistir |
+| Conselho sempre ancorado em versículo | Prompt base: a regra antiga dizia o contrário ("se a pessoa só quer desabafar, o melhor é acolher sem citar nada") |
+| "Amém" depois do encerramento → não responder | Mesmo caminho do aceno |
+| Perguntaram se é IA → assume, dizendo que é supervisionada por humano | Seção nova no prompt base (pedido do cliente no fim do dia 22/09) |
+
+**Sobre assumir que é IA.** A regra é: nunca negar, nunca se dizer pessoa, responder em uma frase que sim, é uma IA, e que o atendimento é sempre supervisionado por alguém da equipe. Não é convite pra explicar como funciona — uma frase e a conversa segue. Isso não conflita com a regra do Pastor Everaldo: ali a resposta continua sendo "aqui é o Zapdafé".
+
+**Sobre o exemplo de crise.** O exemplo que o cliente escreveu para "estou pensando em me matar" não menciona o CVV. **A estrutura dele foi adotada** (respirar fundo → validar o peso → versículo de força → a vida tem valor imenso → um passo de cada vez), e o **188 ficou**, entrando no fim como braço estendido, não como encaminhamento seco. Decidido com o Bru em 22/09: ninguém em risco fica sem uma linha 24h.
+
+**Por que o gatilho de áudio subiu de 455 para 900.** "Sempre citar versículo" empurra quase toda resposta acima de 455 caracteres. Com o valor antigo, o acolhimento em crise chegaria como **áudio** — e o número do CVV, que a pessoa precisa ler e discar, junto. A resposta-modelo do cliente tem ~890 caracteres e agora chega como texto.
+
+**Detalhes que mordem:**
+- A janela do silêncio é de **6 horas** (`ACK_SILENCE_WINDOW_HOURS`). Maior que isso e o "amém" da manhã seguinte — que responde ao devocional do dia, não à conversa de ontem — cairia no silêncio em vez de receber a bênção do cérebro.
+- `isAcknowledgement` é uma lista curta de propósito. "sim", "isso" e "tudo bem" ficaram **fora**: podem estar respondendo a uma pergunta. "obrigado" também, porque tem regra própria no cérebro.
+- `handleRuleReply` marca `closingAtISO`. Sem isso, a regra do "amém" responde e o "ok" seguinte voltaria pra IA — o silêncio nunca aconteceria na prática.
+- `{nome}` escrito nas **instruções** do painel agora é trocado antes de entrar no prompt. Antes só funcionava nas regras de resposta, e o modelo copiava o placeholder literal pra fala.
+
+⚠️ **Duas coisas continuam do lado do painel, não do código:**
+1. As duas últimas linhas da lista do cliente (a do "Se precisar falar mais, estou aqui" e a do "Amém depois do encerramento") **não foram coladas** nas instruções. O comportamento das duas já está no código, mas o painel não reflete a lista completa.
+2. A regra do cérebro de "obrigado/obrigada" responde *"Por nada {nome}. Estou aqui sempre que precisar."* — ou seja, repete a frase de disponibilidade toda vez que alguém agradece, que é a reclamação do cliente. O corte de repetição não alcança regra fixa. Sugestão: trocar por *"Por nada, {nome}. Que Deus te abençoe."*
+
 ## Regras de comportamento (system prompt do LLM)
 
 - Tom: **companheiro carinhoso, parceiro**, português BR contemporâneo, frases curtas
 - Nunca emoji, nunca reação, nunca CAPS
 - **Ortografia correta, toda frase começando com maiúscula.** Regra adicionada em 2026-09-19: o prompt só dizia "não escreve em CAIXA ALTA" e, somado a "sem formalidade excessiva", o GPT-4o-mini passou a responder tudo em minúsculas ("sinto muito que você esteja sentindo essa dor."). Agora o prompt separa explicitamente as duas coisas — informal é o tom, não a grafia
-- Bíblia como ferramenta de conforto — primeiro escuta, valida sentimento, só então (se fizer sentido) traz um verso com contexto e ternura
-- Se crise séria (autoextermínio, violência, urgência) → acolhe + CVV 188 ou 190/192
+- **Não puxa conversa** (regra do cliente, 22/09): responde com empatia e encerra. Proibido "Como posso te ajudar?", "Tem algo que queira compartilhar?" e variações. A única pergunta permitida é a do primeiro nome, uma vez só
+- **Todo conselho ou orientação vem ancorado num versículo**, com referência e texto (regra do cliente, 22/09). Cumprimento curto ("bom dia", "amém") não pede versículo
+- Bíblia como ferramenta de conforto — primeiro escuta, valida sentimento, então traz o verso com contexto e ternura
+- Se crise séria (autoextermínio, violência, urgência) → acolhe, traz versículo de força, e o CVV 188 entra no fim como braço estendido (ou 190/192 em risco imediato) — nunca como encaminhamento seco
+- **Se oferece uma vez por dia, não por resposta** — "estou aqui se precisar" tem teto de 1x/24h por contato
+- **Se perguntarem se é IA, assume** (regra do cliente, 22/09): sim, é inteligência artificial, sempre supervisionada por um humano da equipe. Uma frase, sem virar assunto. Nunca nega, nunca se diz pessoa
 - Se não sabe, diz que não sabe
-- Primeira msg: apresenta como Zapdafé + pergunta primeiro nome
+- Primeira msg: saudação + apresenta como Zapdafé + pergunta primeiro nome, e só isso
 - Retornante c/ nome: chama pelo nome com naturalidade (não em toda msg)
 - Retornante s/ nome: pergunta com jeito em algum momento
 - Música SÓ da playlist Zapdafé (nunca inventa) — se não achar uma que caiba, diz com carinho

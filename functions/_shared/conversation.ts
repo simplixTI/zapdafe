@@ -16,6 +16,10 @@ export interface ContactProfile {
   name?: string;
   firstSeenISO?: string;
   lastSeenISO?: string;
+  /** Quando mandamos a última mensagem de encerramento (bênção ou "estou aqui"). */
+  closingAtISO?: string;
+  /** Quando dissemos "estou aqui se precisar" pela última vez — teto de 1x/24h. */
+  lastOfferAtISO?: string;
 }
 
 export async function loadHistory(env: Env, chatid: string): Promise<ChatMessage[]> {
