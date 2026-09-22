@@ -1,4 +1,4 @@
-# Zapdafé — Status do Projeto (2026-09-21)
+# Zapdafé — Status do Projeto (2026-09-22)
 
 Retomada rápida: leia esse arquivo primeiro pra saber exatamente onde paramos.
 
@@ -245,7 +245,32 @@ Três coisas descobertas em 2026-09-20:
 
    **Como identificar quem não recebeu** (o registro só guarda a contagem, não a lista): buscar no `/message/find` da lux as mensagens `fromMe` do dia cujo texto casa com o do `broadcast:job:`, e tirar a diferença contra `job.targets`. Foi assim que os 85 foram encontrados e **reenviados manualmente em 2026-09-22 às 10:01**, com 100% de entrega.
 
-   **Estado: ✅ NO AR e verificado em 2026-09-20.** Worker `zapdafe-broadcast` deployado (cron `*/5 * * * *`), secrets conferidos, e o lado do Pages trocado para só enfileirar. `runChunk`, `chainNext`, `recordChainError` e o endpoint `broadcast-resume` foram apagados. **Falta só a validação no primeiro disparo real.**
+   ### ✅ Disparo de 2026-09-22 — 238 de 238, arquitetura validada
+
+   Primeiro disparo limpo desde que o desenho mudou: **08:22, 3 grupos, todos concluídos, 238 alvos e 238 mensagens criadas na Uazapi.** O painel mostrou 237 por causa de uma única falha de entrega, e essa falha é a história do dia.
+
+   | status na Uazapi | quantos |
+   |---|---|
+   | Read | 66 |
+   | Delivered | 128 |
+   | Sent | 43 |
+   | **Failed** | **1** |
+
+   **A falha: `553189077770` ("Soares construções"), `WhatsApp server error 403`.** É o cliente que reclamou em 2026-09-18 e que o cliente bloqueou no WhatsApp à mão — mandar para quem você bloqueou dá 403. Ou seja: não foi um defeito do disparo, foi o WhatsApp recusando corretamente.
+
+   **Mas por que ele ainda era alvo?** Aí sim havia um defeito, e ele é geral. Ele foi marcado como opt-out, mas o número gravado na lista era `55231989077770` — a forma de 13 dígitos com um `2` digitado a mais — enquanto o chatid dele tem 12 dígitos: `553189077770`. A comparação era string contra string, então **nunca bateu**. Ele entrou como alvo de todo devocional desde 18/09. Só não recebeu nenhum porque estava bloqueado.
+
+   Isso não é um caso isolado esperando acontecer — é a regra: na base de hoje **143 chatids têm 12 dígitos e 91 têm 13**. Qualquer opt-out digitado na forma "errada" era silenciosamente ignorado.
+
+   **Corrigido em `functions/_shared/optouts.ts`:** `phoneVariants()` gera as duas formas do número brasileiro (com e sem o nono dígito) e a comparação passa a ser por pessoa, não por grafia. A expansão de 8→9 dígitos só vale para celular (prefixo 6–9), porque inventar um nono dígito num fixo criaria o celular de outra pessoa. Verificado contra os 235 contatos reais: **nenhuma variante colide com outro contato**.
+
+   O `removeOptOut` também passou a remover qualquer uma das formas — senão tirar o número digitado deixaria a outra grafia para trás, silenciando alguém para sempre.
+
+   **E o Worker agora grava o número junto do erro** (`errosAmostra`), porque descobrir de quem era essa única falha custou uma varredura no histórico da Uazapi.
+
+   **Ainda a fazer no `/admin` → Opt-outs:** apagar a entrada `55231989077770` (inválida) e cadastrar `553189077770`.
+
+   **Estado: ✅ NO AR e validado em 2026-09-22.** Worker `zapdafe-broadcast` deployado (cron `*/5 * * * *`), secrets conferidos, e o lado do Pages trocado para só enfileirar. `runChunk`, `chainNext`, `recordChainError` e o endpoint `broadcast-resume` foram apagados.
 
    **Health check — use sempre que mexer no Worker:**
    ```
@@ -378,6 +403,7 @@ Ordem cronológica (mais recente por último — ver `git log --oneline`):
 - `031fa52 fix(admin): "+N hoje" mostrava o movimento de ontem` (2026-09-21)
 - `cb810e9 feat(admin): campo para corrigir o nome de um contato` (2026-09-21)
 - `65ba25c fix(admin): força uma passada do arquivo após a troca de fonte` (2026-09-21)
+- `07ee7b1 feat(broadcast): agrupa por tamanho fixo, não por quantidade fixa` (2026-09-22)
 
 ## Como testar mudança sem framework de teste
 

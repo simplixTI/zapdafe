@@ -1,5 +1,5 @@
 import type { Env } from '../_shared/auth';
-import { loadOptOuts, normalizePhone } from '../_shared/optouts';
+import { loadOptOuts, normalizePhone, phoneVariants } from '../_shared/optouts';
 
 function bearerFromHeader(auth: string | null): string | null {
   if (!auth) return null;
@@ -24,7 +24,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   if (check) {
     const normalized = normalizePhone(check);
     return new Response(
-      JSON.stringify({ phone: normalized, optedOut: list.includes(normalized) }),
+      JSON.stringify({ phone: normalized, optedOut: phoneVariants(normalized).some((v) => list.includes(v)) }),
       { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
     );
   }

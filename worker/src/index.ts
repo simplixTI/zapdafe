@@ -130,8 +130,11 @@ async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promis
           group.failed += 1;
           const msg = err instanceof Error ? err.message : String(err);
           console.error(`envio para ${chatid} falhou:`, msg);
+          // Com o número junto: em 2026-09-22 uma falha sozinha custou uma
+          // varredura no histórico da Uazapi só para descobrir de quem era.
           const amostra = (group.errosAmostra ??= []);
-          if (amostra.length < MAX_ERROS_AMOSTRA && !amostra.includes(msg)) amostra.push(msg);
+          const linha = `${chatid.split('@')[0]}: ${msg}`;
+          if (amostra.length < MAX_ERROS_AMOSTRA && !amostra.includes(linha)) amostra.push(linha);
         }
         group.lastChatid = chatid;
       }),
