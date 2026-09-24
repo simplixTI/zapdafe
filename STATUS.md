@@ -1,6 +1,33 @@
-# Zapdafé — Status do Projeto (2026-09-22)
+# Zapdafé — Status do Projeto (2026-09-24)
 
 Retomada rápida: leia esse arquivo primeiro pra saber exatamente onde paramos.
+
+## ⏭️ Onde paramos — 2026-09-24, 01:50 UTC
+
+Quatro deploys no ar hoje: `f1d77e9` (contato novo entra no devocional sem depender do painel), `593a849` (cumprimento seco não passa pela IA), `9dcfb31` (cobre grafia alongada: "Oie", "Oiii", "bom diaaa"), `32799c5` (doc).
+
+**✅ Verificado de verdade, no KV:**
+- O índice `active:<chatid>` é escrito quando chega mensagem (chave criada no teste real).
+- O cumprimento seco responde pelo caminho fixo, não pela IA — provado porque `closingAtISO` e `lastSeenISO` ficaram no mesmo instante, o que só acontece no `handleGreeting`. Se tivesse ido para o modelo, o `closingAtISO` não seria marcado.
+
+**🔴 AINDA NÃO VERIFICADO — é o primeiro item da próxima sessão:**
+
+O bug original (contato novo não recebia o devocional) **não foi provado ponta a ponta**. Todo teste de 23/09 usou o número `5521951014062`, que já estava no `arch:contacts` desde 17/09 — ou seja, provou a escrita do índice, não o caminho "contato que o arquivo não conhece vira alvo".
+
+A conferência é objetiva: **o disparo de 24/09 tem que sair com mais de 266 alvos** (266 é o tamanho do `arch:contacts` em 23/09 às 18:56). Se sair com 266 exatos, o índice não entrou na conta e há algo a investigar.
+
+Como conferir depois do disparo (mesmo método que achou o problema):
+```bash
+NS=71f423871ba94149a3bb8f67b4af9642
+npx wrangler kv key list --namespace-id $NS --remote --prefix "broadcast:job:"   # pega o messageId do dia
+npx wrangler kv key get  --namespace-id $NS --remote "broadcast:job:<id>"        # len(targets)
+npx wrangler kv key list --namespace-id $NS --remote --prefix "active:"          # quantos entraram pelo índice
+```
+
+**Pendências do lado do painel (não são código):**
+1. As duas últimas linhas da lista que o cliente mandou em 22/09 nunca foram coladas em `/admin` → Cérebro → Instruções (a do *"Se precisar falar mais, estou aqui"* e a do *"Amém depois do encerramento"*). O comportamento das duas **já está no código**; o que falta é o painel refletir a lista completa, para o cliente não achar que foi ignorado.
+2. O número `+55 21 95101-4062`, usado nos testes de 23/09, **vira alvo do devocional a partir de 24/09**. Se não for para receber todo dia, marcar opt-out.
+3. (De 22/09, segue aberto) apagar o opt-out inválido `55231989077770` e cadastrar `553189077770`.
 
 ## Visão geral
 
@@ -488,6 +515,12 @@ Ordem cronológica (mais recente por último — ver `git log --oneline`):
 - `cb810e9 feat(admin): campo para corrigir o nome de um contato` (2026-09-21)
 - `65ba25c fix(admin): força uma passada do arquivo após a troca de fonte` (2026-09-21)
 - `07ee7b1 feat(broadcast): agrupa por tamanho fixo, não por quantidade fixa` (2026-09-22)
+- `7ee84de fix(optouts): compara telefone por pessoa, não por grafia` (2026-09-22)
+- `b962159 feat(ai): ajustes de tom pedidos pelo cliente nos testes de 22/09` (2026-09-22)
+- `89424ea docs: regra do "obrigado" trocada no painel, não repete mais a oferta` (2026-09-22)
+- `f1d77e9 fix(broadcast): contato novo vira alvo sem depender de abrir o /admin` (2026-09-23)
+- `593a849 fix(ai): cumprimento seco responde sem passar pela IA` (2026-09-24)
+- `9dcfb31 fix(ai): cumprimento alongado também tem resposta fixa` (2026-09-24)
 
 ## Como testar mudança sem framework de teste
 
