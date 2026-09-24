@@ -73,7 +73,7 @@ Recebe da instância Uazapi **luxprodutora**. Fluxo:
 
 **Broadcast branch** (só enfileira — quem envia é o Worker):
 - Dedupe via `broadcast:sent:<messageId>` (evita re-entrega do Uazapi)
-- Alvos: contatos com `lastMsgAt <90d` E não-optout, lidos do `arch:contacts`
+- Alvos: **união de duas fontes**, menos os opt-outs — (a) `arch:contacts` com `lastMsgAt <90d` e (b) o índice `active:<chatid>`, que o webhook escreve a cada mensagem recebida e cujo TTL de 90 dias **é** a janela de atividade
 - Divide em grupos de **até 100 contatos** (`TAMANHO_ALVO_GRUPO`) e grava job + registros de grupo + `broadcast:queue`. Nenhuma mensagem sai daqui
 - O que é fixo é o **tamanho** do grupo, não a quantidade. Com quantidade fixa cada grupo engordava junto com a lista — foi assim que 3 grupos de 79 bateram no teto de chamadas. Agora o ritmo é sempre o mesmo (um grupo a cada 10 min) e só a duração total cresce: 235 contatos → 3 grupos, 500 → 5, 1000 → 10, 2000 → 20 (~200 min). Se a duração incomodar, o ajuste é `GROUP_INTERVAL_MIN` no Worker, **não** aumentar o grupo
 - O Worker manda um grupo a cada **10 minutos**, em lotes de 10, salvando progresso lote a lote
@@ -207,6 +207,35 @@ O cliente colou a lista inteira no `/admin` → Cérebro → Instruções. **Met
 2. ✅ **Resolvido em 2026-09-22.** A regra do cérebro de "obrigado/obrigada" respondia *"Por nada {nome}. Estou aqui sempre que precisar."* — repetia a frase de disponibilidade toda vez que alguém agradecia, que é a reclamação do cliente, e o corte de repetição **não alcança regra fixa** (ela responde antes da IA). Trocada no KV por *"Por nada, {nome}. Que Deus te abençoe."*
 
    Lição para qualquer regra nova no painel: o que está no cérebro escapa de todo controle de tom do prompt. Se a frase não puder se repetir, ela não pode ser uma regra fixa.
+
+### 🔴 Incidente de 2026-09-23 — contato novo não recebia o devocional do dia seguinte
+
+**Sintoma:** os números que chegaram ontem não receberam o devocional de hoje.
+
+**Causa raiz:** os alvos saíam **só** do `arch:contacts`, que não é um cadastro — é um **retrato** tirado pelo `runArchive`. E o `runArchive` só roda em duas situações: alguém **abrir o `/admin`** com o arquivo vencido há 6h, ou um POST manual em `/api/admin/archive`. O Worker do cron não arquiva. O webhook, ao receber um contato novo, grava `contact:<chatid>` (perfil da conversa) e **nunca toca no `arch:contacts`**.
+
+Ou seja: **quem recebia o devocional dependia de alguém ter aberto o painel.**
+
+**Medido, não suposto:**
+
+| disparo | alvos |
+|---|---|
+| 21/09 10:58 UTC | 235 |
+| 22/09 11:22 UTC | 238 |
+| 23/09 10:52 UTC | 245 |
+| `arch:contacts` às 18:56 UTC de 23/09 | **266** |
+
+21 contatos estavam no arquivo e fora do disparo de hoje. **20 deles já existiam antes das 10:52** — o mais antigo desde 22/09 13:15 — e ficaram de fora mesmo assim. (O 21º, Fátima, chegou às 16:30, depois do disparo; esse não é falha.)
+
+**Correção:** índice `active:<chatid>`, escrito pelo webhook a cada mensagem recebida, com TTL de 90 dias. O `enqueue` passou a unir esse índice com o arquivo.
+
+**Por que uma chave por contato, e não escrever direto no `arch:contacts`:** o arquivo é um JSON único de 36KB. Mandar o webhook fazer read-modify-write nele a cada mensagem criaria uma corrida capaz de **apagar contatos** — no arquivo que este documento marca como insubstituível (a Uazapi só retém ~8 dias). Chave por contato não tem leitura antes da escrita, então duas mensagens simultâneas não se atropelam. E o TTL faz o papel do filtro de 90 dias de graça.
+
+**Por que não mandar o disparo rodar o `runArchive` antes:** o enqueue vive num `waitUntil` do Pages, com teto de ~30s, e o `runArchive` pagina milhares de mensagens da Uazapi. Era voltar ao modo de falha nº 1 da lista lá em cima.
+
+**Limitação conhecida:** o `markActive` fica depois dos returns de reação e de mensagem só-emoji, então um contato cuja **única** interação de todos os tempos seja um 🙏 continua dependendo do arquivo. Na prática não acontece: quem entra pelo link de captação manda texto de verdade na primeira mensagem.
+
+**Contrato Pages↔Worker não mudou** — `broadcast:job:`, `broadcast:lane:` e `broadcast:queue` seguem com os mesmos campos, conferido por teste.
 
 ## Regras de comportamento (system prompt do LLM)
 

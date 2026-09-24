@@ -18,7 +18,7 @@ import {
   loadHistory, appendMessage, loadProfile, updateProfile, type ContactProfile,
 } from '../../_shared/conversation';
 import { getPlaylistTracks, formatPlaylistForPrompt, type Track } from '../../_shared/spotify';
-import { runBroadcast } from '../../_shared/broadcast';
+import { runBroadcast, markActive } from '../../_shared/broadcast';
 import { isOptedOut, addOptOut } from '../../_shared/optouts';
 import { isOptOutCommand, isOptOutIntent, isAcknowledgement } from '../../_shared/intents';
 import { containsOffer, looksLikeClosing, stripOfferSentences, withinHours } from '../../_shared/tone';
@@ -401,6 +401,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // Índice de contatos ativos. É ele que faz alguém que chegou hoje receber o
+  // devocional de amanhã: antes os alvos saíam só do `arch:contacts`, que só é
+  // atualizado quando ALGUÉM ABRE O /admin — e 20 pessoas que chegaram entre
+  // 22/09 e 23/09 ficaram de fora do disparo de 23/09 por causa disso.
+  //
+  // Vem antes de todas as ramificações de propósito: vale para quem cai numa
+  // regra do cérebro ou no silêncio do aceno, não só para quem conversa.
+  context.waitUntil(
+    markActive(env, chatid).catch(err => {
+      console.error('markActive error:', err instanceof Error ? err.message : String(err));
+    }),
+  );
 
   // An explicit command is the only thing that actually opts someone out
   if (isOptOutCommand(text)) {

@@ -49,6 +49,7 @@ interface Queue {
 }
 
 const BROADCAST_ACTIVE_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+export const ACTIVE_TTL_SECONDS = BROADCAST_ACTIVE_WINDOW_MS / 1000;
 
 // Fixamos o TAMANHO do grupo, não a quantidade. Com quantidade fixa, cada
 // grupo engordava junto com a lista — foi assim que 3 grupos de 79 viraram
@@ -59,6 +60,45 @@ const BROADCAST_ACTIVE_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 // 100 é escolhido para o grupo caber folgado numa invocação: ~10 lotes de 10,
 // uns 4 min, contra o teto de 15 min por invocação do cron.
 const TAMANHO_ALVO_GRUPO = 100;
+
+/**
+ * Índice de contatos ativos, mantido pelo webhook a cada mensagem recebida.
+ * O TTL é a própria janela de atividade: se a chave existe, a pessoa falou
+ * com a gente nos últimos 90 dias. Contrato entre o webhook e o disparo.
+ *
+ * Por que ele existe (incidente de 2026-09-23): os alvos saíam só do
+ * `arch:contacts`, que é um retrato tirado pelo `runArchive` — e o runArchive
+ * só roda quando ALGUÉM ABRE O /admin com o arquivo vencido há 6h. Ou seja, a
+ * lista de quem recebe o devocional dependia de alguém ter aberto o painel.
+ * Vinte pessoas que chegaram entre 22/09 13:15 e 23/09 06:37 não receberam o
+ * devocional de 23/09 às 10:52 por causa disso.
+ *
+ * Uma chave por contato, de propósito: `arch:contacts` é um JSON único de 36KB,
+ * e mandar o webhook fazer read-modify-write nele a cada mensagem criaria uma
+ * corrida capaz de APAGAR contatos — num arquivo que o STATUS.md marca como
+ * insubstituível (a Uazapi só guarda ~8 dias de histórico).
+ */
+export const ACTIVE_KEY_PREFIX = 'active:';
+
+/**
+ * Registra que o contato falou com a gente agora. Escrita independente por
+ * contato: duas mensagens simultâneas não se atropelam.
+ */
+export async function markActive(env: Env, chatid: string): Promise<void> {
+  await env.KV.put(ACTIVE_KEY_PREFIX + chatid, '1', { expirationTtl: ACTIVE_TTL_SECONDS });
+}
+
+/** Lê o índice inteiro, paginando até o fim. */
+async function listActiveChatIds(env: Env): Promise<string[]> {
+  const out: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await env.KV.list({ prefix: ACTIVE_KEY_PREFIX, cursor });
+    for (const k of page.keys) out.push(k.name.slice(ACTIVE_KEY_PREFIX.length));
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return out;
+}
 
 const QUEUE_KEY = 'broadcast:queue';
 const jobKey = (id: string) => `broadcast:job:${id}`;
@@ -83,19 +123,33 @@ async function enqueue(env: Env, text: string, messageId: string): Promise<void>
   if (await env.KV.get(dedupKey(messageId))) return;
   await env.KV.put(dedupKey(messageId), '1', { expirationTtl: TTL_7D });
 
-  const [contactsRaw, optouts] = await Promise.all([
+  const [contactsRaw, optouts, activeChatIds] = await Promise.all([
     env.KV.get('arch:contacts'),
     loadOptOutSet(env),
+    listActiveChatIds(env),
   ]);
   const contacts = contactsRaw ? (JSON.parse(contactsRaw) as Record<string, ArchivedContact>) : {};
   const cutoff = Date.now() - BROADCAST_ACTIVE_WINDOW_MS;
 
+  // Duas fontes, uma lista. O arquivo tem o histórico (inclusive quem é
+  // anterior ao índice); o índice tem quem chegou depois do último retrato.
+  const seen = new Set<string>();
   const targets: string[] = [];
+  const add = (chatid: string) => {
+    if (seen.has(chatid)) return;
+    if (optouts.has(chatid.split('@')[0])) return;
+    seen.add(chatid);
+    targets.push(chatid);
+  };
+
   for (const [chatid, c] of Object.entries(contacts)) {
     if (c.lastMsgAt < cutoff) continue;
-    if (optouts.has(chatid.split('@')[0])) continue;
-    targets.push(chatid);
+    add(chatid);
   }
+  // No índice a janela de 90 dias é o próprio TTL da chave: se ela existe, a
+  // pessoa falou com a gente dentro do prazo.
+  for (const chatid of activeChatIds) add(chatid);
+
   if (targets.length === 0) return;
 
   const job: BroadcastJob = { messageId, text, targets };
