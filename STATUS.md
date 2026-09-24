@@ -248,6 +248,7 @@ Ou seja: o prompt acerta na maior parte das vezes e erra justamente no caso mais
 - Vem **depois** do cérebro: regra do painel sempre ganha.
 - Só vale para quem **já tem histórico** — primeira mensagem continua sendo apresentação + pergunta do nome.
 - "Oi, tudo bem?" e "Bom dia! Estou triste hoje" devolvem `null` de propósito: ali tem conteúdo de verdade, que merece a IA.
+- **A primeira versão cobria a grafia de dicionário, não a do WhatsApp.** No teste seguinte o cliente mandou "Oie" e escapou direto pra IA. `collapseRepeats()` colapsa letra repetida antes de comparar, então "Oiii", "Olaa", "bom diaaa" e "boa noitee" caem na mesma resposta. Lição para qualquer lista de gatilhos deste projeto: as pessoas escrevem alongando, e uma lista literal sempre vai ter um buraco.
 - Marca `closingAtISO`, então o "amém" ou "ok" logo depois cai no silêncio.
 
 O prompt também ganhou "Como você está?" e "Tudo bem com você?" na lista de proibidas e a regra **"sua resposta NUNCA termina com ponto de interrogação"**, com a pergunta do nome como única exceção.
