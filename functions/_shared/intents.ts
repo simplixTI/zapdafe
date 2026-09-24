@@ -59,17 +59,29 @@ export function isAcknowledgement(text: string): boolean {
 const GREETING_SUFFIX = /\s+(zap|zapdafe|zap da fe|pastor|everaldo|pastor everaldo|irmao|irma|pessoal|gente|a todos)$/;
 
 /**
+ * "Oiii" e "bom diaaa" são a mesma coisa que a forma curta. Sem isso a lista
+ * nunca fecha: em 24/09 um "Oie" escapou e voltou a ser respondido pela IA.
+ * Colapsa letra repetida em sequência — inofensivo aqui, porque o resultado
+ * só é comparado contra a lista de cumprimentos.
+ */
+function collapseRepeats(s: string): string {
+  return s.replace(/(\p{L})\1+/gu, '$1');
+}
+
+/**
  * Devolve o cumprimento canônico ("Bom dia", "Oi"...) quando a mensagem é SÓ
  * isso, ou null. "Oi, tudo bem?" devolve null de propósito: ali tem uma
  * pergunta de verdade, que merece a IA.
  */
 export function matchGreeting(text: string): string | null {
-  let n = normalizeText(text);
-  // "Boa tarde Zap!" e "Bom dia, pastor" são o mesmo cumprimento seco
+  let n = collapseRepeats(normalizeText(text));
   while (GREETING_SUFFIX.test(n)) n = n.replace(GREETING_SUFFIX, '').trim();
+  // "Oi, bom dia" é o mesmo cumprimento seco que "bom dia"
+  n = n.replace(/^(oie?|ola|opa|salve|e ?ai)\s+(?=bom dia|boa tarde|boa noite)/, '').trim();
+
   if (/^bom dia$/.test(n)) return 'Bom dia';
   if (/^boa tarde$/.test(n)) return 'Boa tarde';
   if (/^boa noite$/.test(n)) return 'Boa noite';
-  if (/^(oi|ola|opa|salve|e ai)$/.test(n)) return 'Oi';
+  if (/^(oie?|ola|opa|salve|e ?ai)$/.test(n)) return 'Oi';
   return null;
 }
