@@ -237,6 +237,21 @@ Ou seja: **quem recebia o devocional dependia de alguém ter aberto o painel.**
 
 **Contrato Pages↔Worker não mudou** — `broadcast:job:`, `broadcast:lane:` e `broadcast:queue` seguem com os mesmos campos, conferido por teste.
 
+### Cumprimento seco tem resposta fixa (2026-09-24)
+
+Teste real em 24/09 01:29, já com o prompt novo no ar: **"Oi" → "Oi! Como você está?"** — exatamente a pergunta que o cliente mandou tirar. No mesmo histórico, "Boa tarde Zap!" → "Boa tarde! Que Deus te abençoe." saiu perfeito, também pós-deploy.
+
+Ou seja: o prompt acerta na maior parte das vezes e erra justamente no caso mais comum. Numa mensagem sem assunto nenhum, o modelo não tem sobre o que ter empatia e volta ao instinto de puxar conversa. **Proibição em prompt é probabilística; a reclamação do cliente é binária.**
+
+`matchGreeting()` devolve o cumprimento canônico quando a mensagem é só isso ("Oi", "Olá", "Bom dia", "Boa tarde Zap!", "Oi pastor Everaldo") e o webhook responde `"<cumprimento>, {nome}. Que Deus te abençoe."` sem chamar a IA.
+
+- Vem **depois** do cérebro: regra do painel sempre ganha.
+- Só vale para quem **já tem histórico** — primeira mensagem continua sendo apresentação + pergunta do nome.
+- "Oi, tudo bem?" e "Bom dia! Estou triste hoje" devolvem `null` de propósito: ali tem conteúdo de verdade, que merece a IA.
+- Marca `closingAtISO`, então o "amém" ou "ok" logo depois cai no silêncio.
+
+O prompt também ganhou "Como você está?" e "Tudo bem com você?" na lista de proibidas e a regra **"sua resposta NUNCA termina com ponto de interrogação"**, com a pergunta do nome como única exceção.
+
 ## Regras de comportamento (system prompt do LLM)
 
 - Tom: **companheiro carinhoso, parceiro**, português BR contemporâneo, frases curtas

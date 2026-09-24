@@ -48,3 +48,28 @@ export function isAcknowledgement(text: string): boolean {
   const normalized = normalizeText(text);
   return normalized.length > 0 && ACKNOWLEDGEMENTS.has(normalized);
 }
+
+// Cumprimento seco, sem assunto nenhum junto.
+//
+// Tem resposta fixa porque o prompt não segurou: em 24/09 o "Oi" virou "Oi!
+// Como você está?" — a pergunta que o cliente mandou tirar — mesmo com a
+// proibição escrita. Num "Oi" sozinho o modelo não tem sobre o que ter
+// empatia e cai no instinto de puxar conversa. A resposta que o cliente
+// pediu ("Bom dia {nome}, que Deus te abençoe") não precisa de LLM.
+const GREETING_SUFFIX = /\s+(zap|zapdafe|zap da fe|pastor|everaldo|pastor everaldo|irmao|irma|pessoal|gente|a todos)$/;
+
+/**
+ * Devolve o cumprimento canônico ("Bom dia", "Oi"...) quando a mensagem é SÓ
+ * isso, ou null. "Oi, tudo bem?" devolve null de propósito: ali tem uma
+ * pergunta de verdade, que merece a IA.
+ */
+export function matchGreeting(text: string): string | null {
+  let n = normalizeText(text);
+  // "Boa tarde Zap!" e "Bom dia, pastor" são o mesmo cumprimento seco
+  while (GREETING_SUFFIX.test(n)) n = n.replace(GREETING_SUFFIX, '').trim();
+  if (/^bom dia$/.test(n)) return 'Bom dia';
+  if (/^boa tarde$/.test(n)) return 'Boa tarde';
+  if (/^boa noite$/.test(n)) return 'Boa noite';
+  if (/^(oi|ola|opa|salve|e ai)$/.test(n)) return 'Oi';
+  return null;
+}

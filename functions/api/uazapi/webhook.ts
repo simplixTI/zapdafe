@@ -20,7 +20,7 @@ import {
 import { getPlaylistTracks, formatPlaylistForPrompt, type Track } from '../../_shared/spotify';
 import { runBroadcast, markActive } from '../../_shared/broadcast';
 import { isOptedOut, addOptOut } from '../../_shared/optouts';
-import { isOptOutCommand, isOptOutIntent, isAcknowledgement } from '../../_shared/intents';
+import { isOptOutCommand, isOptOutIntent, isAcknowledgement, matchGreeting } from '../../_shared/intents';
 import { containsOffer, looksLikeClosing, stripOfferSentences, withinHours } from '../../_shared/tone';
 import { loadBrain, matchReply, renderResponse, type ReplyRule } from '../../_shared/rules';
 import { plausibleFirstName, namedAsSomeoneElse, looksLikeNameQuestion } from '../../_shared/names';
@@ -218,6 +218,19 @@ async function handleRuleReply(env: Env, chatid: string, rule: ReplyRule): Promi
   if (looksLikeClosing(response)) {
     await updateProfile(env, chatid, { closingAtISO: new Date().toISOString() });
   }
+}
+
+// Cumprimento seco não passa pela IA. O prompt proíbe puxar conversa, mas em
+// 24/09 o "Oi" ainda virou "Oi! Como você está?": sem assunto na mensagem, o
+// modelo cai no instinto de perguntar. A resposta que o cliente pediu é fixa,
+// então não precisa de LLM nem fica à mercê dele.
+async function handleGreeting(env: Env, chatid: string, greeting: string): Promise<void> {
+  const name = await resolveContactName(env, chatid);
+  const response = name
+    ? `${greeting}, ${name}. Que Deus te abençoe.`
+    : `${greeting}. Que Deus te abençoe.`;
+  await respondAsText(env, chatid, response);
+  await updateProfile(env, chatid, { closingAtISO: new Date().toISOString() });
 }
 
 async function handleConversation(
@@ -465,6 +478,24 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ ok: true, kind: 'rule_reply', ruleId: rule.id }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
+  }
+
+  // Cumprimento seco ("Oi", "Boa tarde Zap!") tem resposta fixa. Vem DEPOIS do
+  // cérebro, para uma regra do painel sempre ganhar, e só vale para quem já
+  // conversou antes — primeira mensagem segue sendo apresentação + nome.
+  const greeting = matchGreeting(text);
+  if (greeting) {
+    const history = await loadHistory(env, chatid);
+    if (history.length > 0) {
+      context.waitUntil(
+        handleGreeting(env, chatid, greeting).catch(err => {
+          console.error('greeting error:', err instanceof Error ? err.message : String(err));
+        }),
+      );
+      return new Response(JSON.stringify({ ok: true, kind: 'greeting' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
   }
 
   // Conversation branch — run async so webhook returns fast
