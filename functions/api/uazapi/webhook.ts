@@ -23,7 +23,9 @@ import { isOptedOut, addOptOut } from '../../_shared/optouts';
 import { isOptOutCommand, isOptOutIntent, isAcknowledgement, matchGreeting } from '../../_shared/intents';
 import { containsOffer, looksLikeClosing, stripOfferSentences, withinHours } from '../../_shared/tone';
 import { loadBrain, matchReply, renderResponse, type ReplyRule } from '../../_shared/rules';
-import { plausibleFirstName, namedAsSomeoneElse, looksLikeNameQuestion } from '../../_shared/names';
+import {
+  plausibleFirstName, namedAsSomeoneElse, looksLikeNameQuestion, looksLikeSelfIntroduction,
+} from '../../_shared/names';
 
 interface UazapiWebhookMessage {
   chatid?: string;
@@ -268,12 +270,19 @@ async function handleConversation(
   // If we still don't have a name and this isn't the very first message,
   // try to extract one from what the user just said (they might be
   // answering our earlier "qual seu nome?"). Best-effort — never blocks.
-  if (!contactName && !treatAsFirstMessage) {
+  //
+  // `corrigindo` é a segunda porta, e ela existe porque a primeira se fechava
+  // para sempre: com um nome já salvo a extração não rodava, então quem ficou
+  // registrado com o nome de exibição do WhatsApp ("Joanilson" para o Pedro,
+  // "Membro" para o Victor) não tinha como se corrigir por mais que dissesse.
+  const corrigindo = looksLikeSelfIntroduction(userText);
+  if (corrigindo || (!contactName && !treatAsFirstMessage)) {
     try {
       // "Everaldo" é o pastor, exceto quando a pessoa está respondendo à
       // pergunta direta sobre o nome dela — aí é nome de contato mesmo.
       const lastFromAI = [...history].reverse().find((m) => m.role === 'assistant');
-      const answeringNameQuestion = lastFromAI ? looksLikeNameQuestion(lastFromAI.content) : false;
+      const answeringNameQuestion = corrigindo
+        || (lastFromAI ? looksLikeNameQuestion(lastFromAI.content) : false);
 
       // O extrator devolve "Sou" para "eu sou sozinha" e "Everaldo" para
       // "Oi Pastor Everaldo" — a mesma trava vale, mais a checagem de vocativo
@@ -326,6 +335,15 @@ async function handleConversation(
   const patch: Partial<ContactProfile> = {};
   if (containsOffer(finalText)) patch.lastOfferAtISO = nowISO;
   if (looksLikeClosing(finalText)) patch.closingAtISO = nowISO;
+  // O nome vai JUNTO deste patch, mesmo já tendo sido gravado lá em cima.
+  //
+  // `updateProfile` relê o KV antes de gravar, e essa releitura pode vir velha
+  // — o KV é eventualmente consistente e a borda cacheia leitura por até 60s.
+  // Quando vem, a gravação de fim de turno escreve por cima SEM o nome, e a
+  // pessoa que acabou de se apresentar volta a não ter nome. É o que deixou
+  // Pedro, Elbiano, Nilda, Ederson e outros seis sem nome no perfil, fazendo a
+  // IA cair no nome de exibição do WhatsApp e chamar cada um de outra coisa.
+  if (contactName) patch.name = contactName;
 
   // Persist history and touch profile timestamps
   await appendMessage(env, chatid, { role: 'user', content: userText });

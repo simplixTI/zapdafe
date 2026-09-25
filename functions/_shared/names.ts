@@ -42,6 +42,23 @@ export function looksLikeNameQuestion(text: string): boolean {
   return NAME_QUESTION.test(normalizeText(text));
 }
 
+// A pessoa se apresentando de forma inequívoca. Serve para um caso específico:
+// quando JÁ temos um nome salvo e ela está corrigindo.
+//
+// Sem isso o nome errado é permanente. A extração só roda quando não há nome
+// (`if (!contactName)`), então quem foi registrado como "Joanilson" — o nome de
+// exibição do WhatsApp — nunca vira "Pedro", por mais vezes que ele diga.
+//
+// A lista é curta de propósito: aqui a gente SOBRESCREVE um nome existente, e
+// "sou o pai da Ana" não pode virar correção. Quem corrige diz "meu nome é" ou
+// "me chamo".
+const SELF_INTRO = /\b(meu nome (e|eh) |me chamo\b|pode me chamar de\b|meu primeiro nome (e|eh) |nao me chamo\b|meu nome nao (e|eh)\b)/;
+
+/** True quando a pessoa está declarando o próprio nome de forma explícita. */
+export function looksLikeSelfIntroduction(text: string): boolean {
+  return SELF_INTRO.test(normalizeText(text));
+}
+
 const LETTERS_ONLY = /^[\p{L}][\p{L}'-]*$/u;
 
 const GREETINGS = 'oi|ola|opa|bom dia|boa tarde|boa noite|fala|e ai|salve|paz do senhor|paz';
