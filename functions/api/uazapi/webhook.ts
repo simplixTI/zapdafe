@@ -173,20 +173,28 @@ async function respondAsVoice(env: Env, chatid: string, text: string): Promise<v
 // ---------- conversation branch ----------
 
 /**
- * Look up a chatid in the admin's archived contacts (from the old Uazapi
- * session that was managed via n8n). If found, the person is a returning
- * user — we know their name and shouldn't treat this as a first-time
- * introduction.
+ * Se esse chatid já escreveu pra gente antes, mesmo que o histórico local
+ * tenha expirado (`conv:<chatid>` vive 30 dias). Serve só para não nos
+ * reapresentarmos a quem já conhece o Zapdafé.
+ *
+ * NÃO devolve nome, de propósito. O que o arquivo guarda é o nome de EXIBIÇÃO
+ * do WhatsApp — um apelido que a pessoa escolheu para si, não o nome que ela
+ * nos deu. Usar aquilo como vocativo já produziu três incidentes: "Sou" para a
+ * Cleonice, "Everaldo" para o Toninho e, em 2026-09-25, "Joanilson" para quem
+ * se chama Pedro, "Membro" para o Victor e "Elbianosantos" para o Elbiano.
+ *
+ * Decisão do cliente em 2026-09-25: sem um nome que a pessoa tenha dito, a IA
+ * pergunta em vez de chutar. Ser chamado pelo nome de um estranho é pior que
+ * ser perguntado.
  */
-async function existingContactFromArchive(env: Env, chatid: string): Promise<{ name: string } | null> {
+async function isKnownFromArchive(env: Env, chatid: string): Promise<boolean> {
   const raw = await env.KV.get('arch:contacts');
-  if (!raw) return null;
+  if (!raw) return false;
   try {
-    const contacts = JSON.parse(raw) as Record<string, { name?: string }>;
-    const name = plausibleFirstName(contacts[chatid]?.name);
-    return name ? { name } : null;
+    const contacts = JSON.parse(raw) as Record<string, unknown>;
+    return Object.prototype.hasOwnProperty.call(contacts, chatid);
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -195,10 +203,9 @@ async function existingContactFromArchive(env: Env, chatid: string): Promise<{ n
 // without a migration — the assistant just asks for the name again.
 async function resolveContactName(env: Env, chatid: string): Promise<string | null> {
   const profile = await loadProfile(env, chatid);
-  const stored = plausibleFirstName(profile.name);
-  if (stored) return stored;
-  const archived = await existingContactFromArchive(env, chatid);
-  return archived?.name ?? null;
+  // Só o que a pessoa nos disse. Sem queda para o nome de exibição do
+  // WhatsApp — ver isKnownFromArchive acima.
+  return plausibleFirstName(profile.name);
 }
 
 async function handleOptOut(env: Env, chatid: string, phone: string): Promise<void> {
@@ -254,17 +261,16 @@ async function handleConversation(
 
   let contactName = plausibleFirstName(profile.name);
 
-  // If we have no local history AND no profile, check whether this person
-  // already exists in the archive (i.e., they talked to us via the previous
-  // n8n flow). If yes, they're a returning user — not a first-time contact.
+  // Sem histórico local a pessoa PARECE nova, mas pode só ter sumido por mais
+  // de 30 dias (o `conv:` expira) ou vir do fluxo antigo do n8n. Se ela está no
+  // arquivo, já escreveu antes: não nos reapresentamos.
+  //
+  // O arquivo não entrega nome nenhum (ver isKnownFromArchive). Então aqui a
+  // pessoa cai no modo "retornante sem nome" do prompt, que pergunta o nome
+  // uma vez, com jeito — em vez de chamá-la pelo apelido do WhatsApp.
   let treatAsFirstMessage = history.length === 0;
-  if (treatAsFirstMessage && !contactName) {
-    const archived = await existingContactFromArchive(env, chatid);
-    if (archived) {
-      contactName = archived.name;
-      await updateProfile(env, chatid, { name: archived.name });
-      treatAsFirstMessage = false;
-    }
+  if (treatAsFirstMessage && (await isKnownFromArchive(env, chatid))) {
+    treatAsFirstMessage = false;
   }
 
   // If we still don't have a name and this isn't the very first message,

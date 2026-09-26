@@ -280,6 +280,36 @@ Ou seja: o prompt acerta na maior parte das vezes e erra justamente no caso mais
 
 O prompt também ganhou "Como você está?" e "Tudo bem com você?" na lista de proibidas e a regra **"sua resposta NUNCA termina com ponto de interrogação"**, com a pergunta do nome como única exceção.
 
+### 🔴 Incidente de 2026-09-25 — "o Zapdafé chama a pessoa de outra coisa"
+
+Reclamação do cliente: vários contatos que já deram o nome são chamados por outro. Confirmado, com duas causas encadeadas.
+
+**Causa 1 — o nome dito se perdia na gravação.** `handleConversation` gravava o perfil **duas vezes no mesmo request**: `{ name }` assim que extraía, e o patch de fim de turno. E `updateProfile` **relê o KV** antes de gravar. Essa releitura pode vir velha — o KV é eventualmente consistente e a borda cacheia leitura por até 60s — e então a gravação de fim de turno escreve por cima **sem o nome**.
+
+Reproduzido com um KV falso que modela a leitura cacheada. É o mesmo comportamento que derrubou o broadcast em faixas em 20/09 e que os testes daquele dia não modelavam.
+
+**Causa 2 — sem nome no perfil, caía no nome de exibição do WhatsApp.** `resolveContactName` tinha queda para `arch:contacts`, cujo campo `name` é `lead_name || wa_name` da Uazapi, ou seja o **apelido que a pessoa escolheu**, não o nome que ela nos deu.
+
+| contato | disse | era chamado de |
+|---|---|---|
+| 558499637470 | Pedro | **Joanilson** (display) |
+| 553191525282 | Elbiano | **Elbianosantos** |
+| 5521991570191 | Victor | **Membro** (display: "👼Membro📖 Victor🙏") |
+| 5519982703042 | Ederson | (sem nome) |
+
+Medido: **50 dos 134 perfis sem nome**, e **37 contatos chamados pelo display** — incluindo "Mg", "B1", "Abelalves".
+
+**Correções:**
+1. O nome vai junto do patch de fim de turno, então a releitura velha deixa de importar.
+2. `looksLikeSelfIntroduction()` reabre a extração quando a pessoa se corrige ("meu nome é X", "me chamo X"). **Isso não existia:** a extração só rodava com o perfil vazio, então nome errado era permanente. Lista curta de propósito — ali sobrescrevemos um nome existente, e "sou o pai da Ana" não pode virar correção.
+3. **O arquivo deixou de ser fonte de nome** (decisão do cliente, 25/09). `isKnownFromArchive()` devolve só se a pessoa já escreveu antes, para não nos reapresentarmos a quem já conhece; sem nome, o prompt entra no modo "retornante sem nome" e **pergunta** em vez de chutar. Ser chamado pelo nome de um estranho é pior que ser perguntado.
+
+**Dados corrigidos no KV em 25/09** (backup de cada perfil antes, todos os outros campos preservados, 9 de 9 conferidos na releitura): Pedro, Elbiano, Ederson, Nilda, Douglas, Rodrigo, Nayara, Keirin, Raquel.
+
+O **Victor** (`5521991570191`) ficou **de fora de propósito**: o nome dele só aparece no display do WhatsApp, nunca na fala. Corrigir ali seria confiar exatamente na fonte que acabamos de aposentar. Com a mudança, a IA vai perguntar o nome dele.
+
+⚠️ **Hipótese que eu levantei e estava errada** — vale para a próxima investigação: achei que o display estivesse sendo *gravado* por cima do nome dito. Não era isso; ele nunca é gravado, só é usado na hora de responder. A medição mostrou 0 de 11 divergentes com nome salvo igual ao display, e **27 perfis com nome vindo mesmo da fala** — o que provou que a extração funciona e desviou a investigação para a persistência.
+
 ## Regras de comportamento (system prompt do LLM)
 
 - Tom: **companheiro carinhoso, parceiro**, português BR contemporâneo, frases curtas
