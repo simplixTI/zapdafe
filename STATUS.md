@@ -87,7 +87,7 @@ Recebe da instância Uazapi **luxprodutora**. Fluxo:
 **Conversation branch:**
 - Carrega histórico (`conv:<chatid>`) — últimas 12 turns
 - Carrega perfil (`contact:<chatid>`) — nome, first/lastSeen
-- Se contato não tem perfil, checa `arch:contacts` (do admin) — herda nome de retornante
+- Se contato não tem perfil, checa `arch:contacts` só pra saber se **já escreveu antes** (não se reapresenta). **Não herda nome de lá** — ver o incidente de 2026-09-25
 - **Todo nome passa por `plausibleFirstName`** antes de ser usado (ver "Validação do nome")
 - Busca RAG (top 3, threshold 0.32)
 - Busca playlist Spotify (cache 7d em `spotify:playlist:*`)
