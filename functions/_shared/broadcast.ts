@@ -9,7 +9,7 @@
 // tem 15 minutos de execução por invocação e manda um grupo por vez.
 
 import type { Env } from './auth';
-import { loadOptOutSet } from './optouts';
+import { loadOptOutSet, phoneVariants } from './optouts';
 
 interface ArchivedContact {
   name: string;
@@ -131,13 +131,26 @@ async function enqueue(env: Env, text: string, messageId: string): Promise<void>
   const contacts = contactsRaw ? (JSON.parse(contactsRaw) as Record<string, ArchivedContact>) : {};
   const cutoff = Date.now() - BROADCAST_ACTIVE_WINDOW_MS;
 
+  // O número que dispara o devocional não recebe o devocional.
+  //
+  // O cliente manda a mensagem do WhatsApp dele e ela voltava, porque ele
+  // também é um contato no arquivo — era o alvo nº 51 dos 312 em 28/09.
+  // Pedido dele nesse mesmo dia.
+  //
+  // Comparado por variante (com e sem o nono dígito) pela mesma razão do
+  // opt-out: o chatid e o que está configurado no env podem estar em grafias
+  // diferentes, e aí a trava não pegaria.
+  const gatilho = new Set(env.DEVOTIONAL_TRIGGER_PHONE ? phoneVariants(env.DEVOTIONAL_TRIGGER_PHONE) : []);
+
   // Duas fontes, uma lista. O arquivo tem o histórico (inclusive quem é
   // anterior ao índice); o índice tem quem chegou depois do último retrato.
   const seen = new Set<string>();
   const targets: string[] = [];
   const add = (chatid: string) => {
     if (seen.has(chatid)) return;
-    if (optouts.has(chatid.split('@')[0])) return;
+    const phone = chatid.split('@')[0];
+    if (gatilho.has(phone)) return;
+    if (optouts.has(phone)) return;
     seen.add(chatid);
     targets.push(chatid);
   };

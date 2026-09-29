@@ -100,6 +100,7 @@ Recebe da instância Uazapi **luxprodutora**. Fluxo:
 
 **Broadcast branch** (só enfileira — quem envia é o Worker):
 - Dedupe via `broadcast:sent:<messageId>` (evita re-entrega do Uazapi)
+- **O número do gatilho (`DEVOTIONAL_TRIGGER_PHONE`) nunca é alvo.** O cliente dispara do WhatsApp dele e recebia a própria mensagem de volta — era o alvo nº 51 dos 312 em 28/09. Barrado por variante do número (com e sem nono dígito), pela mesma razão do opt-out. Pedido dele em 2026-09-28
 - Alvos: **união de duas fontes**, menos os opt-outs — (a) `arch:contacts` com `lastMsgAt <90d` e (b) o índice `active:<chatid>`, que o webhook escreve a cada mensagem recebida e cujo TTL de 90 dias **é** a janela de atividade
 - Divide em grupos de **até 100 contatos** (`TAMANHO_ALVO_GRUPO`) e grava job + registros de grupo + `broadcast:queue`. Nenhuma mensagem sai daqui
 - O que é fixo é o **tamanho** do grupo, não a quantidade. Com quantidade fixa cada grupo engordava junto com a lista — foi assim que 3 grupos de 79 bateram no teto de chamadas. Agora o ritmo é sempre o mesmo (um grupo a cada 10 min) e só a duração total cresce: 235 contatos → 3 grupos, 500 → 5, 1000 → 10, 2000 → 20 (~200 min). Se a duração incomodar, o ajuste é `GROUP_INTERVAL_MIN` no Worker, **não** aumentar o grupo
