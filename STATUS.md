@@ -27,7 +27,7 @@ npx wrangler kv key list --namespace-id $NS --remote --prefix "active:"         
 **Pendências do lado do painel (não são código):**
 1. As duas últimas linhas da lista que o cliente mandou em 22/09 nunca foram coladas em `/admin` → Cérebro → Instruções (a do *"Se precisar falar mais, estou aqui"* e a do *"Amém depois do encerramento"*). O comportamento das duas **já está no código**; o que falta é o painel refletir a lista completa, para o cliente não achar que foi ignorado.
 2. O número `+55 21 95101-4062`, usado nos testes de 23/09, **vira alvo do devocional a partir de 24/09**. Se não for para receber todo dia, marcar opt-out.
-3. (De 22/09, segue aberto) apagar o opt-out inválido `55231989077770` e cadastrar `553189077770`.
+3. ✅ **Resolvido em 2026-10-03** — opt-out do `553189077770` cadastrado e as entradas mortas removidas. Ver o incidente de 02/10 abaixo.
 
 ## Visão geral
 
@@ -311,6 +311,24 @@ O **Victor** (`5521991570191`) ficou **de fora de propósito**: o nome dele só 
 
 ⚠️ **Hipótese que eu levantei e estava errada** — vale para a próxima investigação: achei que o display estivesse sendo *gravado* por cima do nome dito. Não era isso; ele nunca é gravado, só é usado na hora de responder. A medição mostrou 0 de 11 divergentes com nome salvo igual ao display, e **27 perfis com nome vindo mesmo da fala** — o que provou que a extração funciona e desviou a investigação para a persistência.
 
+### Incidente de 2026-10-02 — o `403` solitário do devocional
+
+Disparo de 02/10: **392 de 393 entregues, 4 faixas concluídas, 1 falha** com `WhatsApp server error 403`.
+
+**O erro em si é inofensivo.** `403` do servidor do WhatsApp é a Meta recusando a entrega para aquele número — o caso típico é bloqueio entre as pontas. Não é defeito do disparo.
+
+**Quem era:** `553189077770` ("Soares construções"). Identificado por três vias que fecham — alvo nº 191, faixa 1 cobre 99–197 e foi a única com falha (exatamente uma), e o `/message/find` da Uazapi confirma `Failed` às 11:58, o mesmo minuto em que a faixa 1 terminou.
+
+**O problema de verdade não era o erro.** É o contato que pediu para sair em 18/09 e **nunca foi cadastrado como opt-out**. E o histórico dele mostra o pior: `Sent` nos dias 27, 28 e 30/09, `Failed` nos dias 29/09, 01/10 e 02/10. Ou seja, nos dias em que o bloqueio não pegou, **a mensagem foi entregue a quem pediu para parar de receber**. O 403 era cosmético; isso não.
+
+**Feito em 03/10:**
+- `553189077770` cadastrado no opt-out (vale para as duas grafias, via `phoneVariants`)
+- duas entradas mortas removidas: `55231989077770` (a grafia inválida com um dígito a mais, que não casa com ninguém) e `21998088003` (sem o `55` na frente, então nunca bate com chatid nenhum)
+- verificado rodando o `enqueue` **real** contra os dados de produção: 398 alvos, e ele fora nas duas grafias
+- Worker deployado e `/health` conferido (`kv: ok`, `uazapi: ok`, `tokenChars: 36`)
+
+⚠️ **A lição que importa:** uma pendência escrita neste arquivo não se resolve sozinha. Essa ficou aqui desde 22/09, foi relida em várias sessões, e só saiu quando o sintoma voltou a aparecer. Pendência que envolve **uma pessoa esperando** merece subir para o bloco "Onde paramos" no topo, não ficar no corpo de um incidente antigo.
+
 ## Regras de comportamento (system prompt do LLM)
 
 - Tom: **companheiro carinhoso, parceiro**, português BR contemporâneo, frases curtas
@@ -410,7 +428,7 @@ O **Victor** (`5521991570191`) ficou **de fora de propósito**: o nome dele só 
 
    **E o Worker agora grava o número junto do erro** (`errosAmostra`), porque descobrir de quem era essa única falha custou uma varredura no histórico da Uazapi.
 
-   **Ainda a fazer no `/admin` → Opt-outs:** apagar a entrada `55231989077770` (inválida) e cadastrar `553189077770`.
+   **Feito em 2026-10-03, com duas semanas de atraso** — ver "Incidente de 2026-10-02" abaixo. A pendência ficou escrita aqui e passou batido em todas as sessões seguintes; nesse meio tempo ele recebeu o devocional nos dias em que o bloqueio não pegou.
 
    **Estado: ✅ NO AR e validado em 2026-09-22.** Worker `zapdafe-broadcast` deployado (cron `*/5 * * * *`), secrets conferidos, e o lado do Pages trocado para só enfileirar. `runChunk`, `chainNext`, `recordChainError` e o endpoint `broadcast-resume` foram apagados.
 
@@ -427,6 +445,10 @@ O **Victor** (`5521991570191`) ficou **de fora de propósito**: o nome dele só 
    Detalhes do que foi: Código em `worker/` (`wrangler.toml` + `src/index.ts`). Ele lê o mesmo namespace KV do Pages e mantém o formato `broadcast:lane:<messageId>:<lane>`, então o painel continua funcionando sem mudança. Progresso é salvo **a cada lote de 10**, então se a invocação morrer no meio o próximo tick retoma do cursor (perda máxima: os 10 do lote em voo, que podem duplicar).
 
    Para mexer no Worker depois: `cd worker`, `npx wrangler deploy`. Os secrets `AI_UAZAPI_BASE` e `AI_UAZAPI_TOKEN` são do Worker e ficam separados dos do Pages — mudou num lado, tem que mudar no outro
+
+   🔴 **O Worker NÃO sobe com o push.** O Pages faz deploy automático a cada push na `feat/admin`; o Worker exige `npx wrangler deploy` à mão. Em 03/10 descobri que o commit `7ee84de`, de 22/09, tinha ficado **11 dias sem deploy** — o Worker em produção era o de 21/09. Só o log de erro ficou de fora naquele caso, mas a armadilha é geral: commit em `worker/` que não é seguido de deploy fica no repositório parecendo estar no ar.
+
+   Como conferir: `cd worker && npx wrangler deployments list` e comparar com `git log -1 --format=%cI -- worker/src/index.ts`.
 3. **Métricas migradas pra luxprodutora** — FEITO em 2026-09-20. `stats.ts` e `/api/admin/archive` agora leem da **luxprodutora** (`aiCreds`). O painel mostrava "Hoje: 0 mensagens" estando correto: a campanha360 realmente não tinha tráfego, porque toda conversa da IA acontece na outra instância.
 
    **Os contatos da campanha360 são backlog, não lixo** (instrução do cliente): *"salva esse número que era do campanha como backlog, pois existem de verdade essas pessoas"*. Isso é atendido sem precisar copiar nada: `runArchive` **mescla** em vez de substituir, então os 221 contatos e as 7.882 mensagens que já estão em `arch:contacts` continuam lá e a luxprodutora vai somando por cima, pra sempre.
