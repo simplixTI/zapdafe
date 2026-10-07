@@ -100,7 +100,8 @@ Recebe da instância Uazapi **luxprodutora**. Fluxo:
 
 **Broadcast branch** (só enfileira — quem envia é o Worker):
 - Dedupe via `broadcast:sent:<messageId>` (evita re-entrega do Uazapi)
-- **O número do gatilho (`DEVOTIONAL_TRIGGER_PHONE`) nunca é alvo.** O cliente dispara do WhatsApp dele e recebia a própria mensagem de volta — era o alvo nº 51 dos 312 em 28/09. Barrado por variante do número (com e sem nono dígito), pela mesma razão do opt-out. Pedido dele em 2026-09-28
+- **Nunca são alvo:** o número do gatilho (`DEVOTIONAL_TRIGGER_PHONE`, do env) e os números do próprio projeto (`NUNCA_ALVO`, em código). Hoje a lista tem `552123427056`, o WhatsApp do Zapdafé e destino do link de captação — ele entra no `arch:contacts` como qualquer contato e em 06/10 estava entre os alvos, ou seja **o devocional era enviado para nós mesmos todo dia**
+- **O número do gatilho nunca é alvo.** O cliente dispara do WhatsApp dele e recebia a própria mensagem de volta — era o alvo nº 51 dos 312 em 28/09. Barrado por variante do número (com e sem nono dígito), pela mesma razão do opt-out. Pedido dele em 2026-09-28
 - Alvos: **união de duas fontes**, menos os opt-outs — (a) `arch:contacts` com `lastMsgAt <90d` e (b) o índice `active:<chatid>`, que o webhook escreve a cada mensagem recebida e cujo TTL de 90 dias **é** a janela de atividade
 - Divide em grupos de **até 100 contatos** (`TAMANHO_ALVO_GRUPO`) e grava job + registros de grupo + `broadcast:queue`. Nenhuma mensagem sai daqui
 - O que é fixo é o **tamanho** do grupo, não a quantidade. Com quantidade fixa cada grupo engordava junto com a lista — foi assim que 3 grupos de 79 bateram no teto de chamadas. Agora o ritmo é sempre o mesmo (um grupo a cada 10 min) e só a duração total cresce: 235 contatos → 3 grupos, 500 → 5, 1000 → 10, 2000 → 20 (~200 min). Se a duração incomodar, o ajuste é `GROUP_INTERVAL_MIN` no Worker, **não** aumentar o grupo
@@ -328,6 +329,39 @@ Disparo de 02/10: **392 de 393 entregues, 4 faixas concluídas, 1 falha** com `W
 - Worker deployado e `/health` conferido (`kv: ok`, `uazapi: ok`, `tokenChars: 36`)
 
 ⚠️ **A lição que importa:** uma pendência escrita neste arquivo não se resolve sozinha. Essa ficou aqui desde 22/09, foi relida em várias sessões, e só saiu quando o sintoma voltou a aparecer. Pendência que envolve **uma pessoa esperando** merece subir para o bloco "Onde paramos" no topo, não ficar no corpo de um incidente antigo.
+
+### Incidente de 2026-10-06 — o `403` NÃO é bloqueio, é passageiro
+
+Disparo de 06/10: **432 de 433, 1 falha** com `WhatsApp server error 403` — e agora **com o número no log**, porque o Worker foi deployado em 03/10.
+
+**Em 02/10 eu atribuí o 403 a bloqueio. Estava incompleto.** O histórico dos últimos 7 disparos mostra outra coisa:
+
+| data | alvos | falhas | quem |
+|---|---|---|---|
+| 30/09 | 255 | 0 | |
+| 01/10 | 362 | 2 | (sem número — Worker velho) |
+| 02/10 | 393 | 1 | Soares |
+| 03/10 | 398 | 1 | Diana |
+| 04/10 | 411 | 0 | |
+| 05/10 | 411 | 0 | |
+| 06/10 | 433 | 1 | Diana |
+
+E o histórico da contato `5511941272995` ("Diana - iFood", 47 mensagens dela desde 15/09): **Failed 03/10 → Sent 04/10 → Sent 05/10 → Failed 06/10.**
+
+**Bloqueio não alterna.** É recusa esporádica do lado do WhatsApp, 0 a 2 envios em mais de 400 (≤0,5%). A arquitetura está certa.
+
+**O que faltava no nosso lado: a falha nunca era retentada.** A pessoa perdia o devocional do dia por uma recusa de segundos. `sendGroup` agora faz **uma segunda tentativa no fim do grupo** (`MAX_RETENTATIVAS = 20`), que dá minutos de distância do primeiro envio — exatamente o que uma recusa passageira precisa. Recuperação contada em `retentadosOk`; o que sobreviver continua em `failed` e no `errosAmostra`.
+
+⚠️ A retentativa cobre só as falhas **da mesma invocação**. Hoje um grupo cabe numa invocação só (teto 200 contra grupo de 100), então na prática cobre tudo — mas se `MAX_ENVIOS_POR_INVOCACAO` cair para 45 (plano gratuito), grupos retomados perdem a retentativa do tick anterior.
+
+**Medição que derrubou dois palpites meus:**
+- Disse que a Diana nunca havia escrito. Errado — eu estava lendo a janela de ~8 dias da Uazapi. O arquivo tem 47 mensagens dela. **Para qualquer pergunta sobre histórico de contato, o arquivo em KV é a fonte, não a Uazapi.**
+- Suspeitei de números de teste na lista. O `/chat/check` nos 433 alvos mostrou que **só 2 não existem no WhatsApp**: `556899112730` ("Eliete Santos Da Silva") e `5521999990001`. O `5521999995502`, que eu achei sintético, existe. Esses 2 não dão erro nem custam nada visível, então ficaram como estão.
+
+Para repetir a medição:
+```bash
+curl -s -X POST "$AI_UAZAPI_BASE/chat/check" -H "Content-Type: application/json"   -H "token: $AI_UAZAPI_TOKEN" -d '{"numbers":["55..."]}'   # máx 100 por chamada
+```
 
 ## Regras de comportamento (system prompt do LLM)
 

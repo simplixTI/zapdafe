@@ -41,6 +41,8 @@ interface GroupStats {
   /** Amostra dos erros de envio. Sem isso a falha some no console e o painel
    *  só mostra um número, que não diz nada sobre a causa. */
   errosAmostra?: string[];
+  /** Quantas falhas a segunda tentativa recuperou. */
+  retentadosOk?: number;
 }
 
 interface Queue {
@@ -71,6 +73,10 @@ const BATCH_PAUSE_MS = 6000;
 const MAX_ENVIOS_POR_INVOCACAO = 200;
 /** Quantos erros distintos guardar por grupo, para diagnóstico. */
 const MAX_ERROS_AMOSTRA = 5;
+// Teto da segunda tentativa. Folgado para o que se vê na prática (0 a 2 falhas
+// em 400+ envios) e baixo o bastante para não virar um segundo disparo se algo
+// der muito errado.
+const MAX_RETENTATIVAS = 20;
 // Espaçamento entre grupos, pedido do cliente — evita parecer disparo em massa.
 const GROUP_INTERVAL_MIN = 10;
 
@@ -108,6 +114,8 @@ async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promis
 
   let primeiroLote = true;
   let enviadosNestaInvocacao = 0;
+  // Quem falhou nesta invocação, para uma segunda tentativa no fim do grupo.
+  const falhas: string[] = [];
 
   while (group.cursor < group.end) {
     if (enviadosNestaInvocacao + BATCH_SIZE > MAX_ENVIOS_POR_INVOCACAO) {
@@ -128,6 +136,7 @@ async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promis
           group.dispatched += 1;
         } catch (err) {
           group.failed += 1;
+          falhas.push(chatid);
           const msg = err instanceof Error ? err.message : String(err);
           console.error(`envio para ${chatid} falhou:`, msg);
           // Com o número junto: em 2026-09-22 uma falha sozinha custou uma
@@ -146,6 +155,37 @@ async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promis
     group.updatedAtISO = new Date().toISOString();
     enviadosNestaInvocacao += batch.length;
     await saveGroup(env, group);
+  }
+
+  // Segunda tentativa para quem falhou.
+  //
+  // O `WhatsApp server error 403` do disparo é PASSAGEIRO, não bloqueio: a
+  // mesma contato ("Diana - iFood") falhou em 03/10 e 06/10 e recebeu normal
+  // em 04 e 05. Sem retentativa, a pessoa simplesmente perde o devocional do
+  // dia por uma recusa de alguns segundos. Nos últimos 7 disparos foram 0 a 2
+  // falhas em mais de 400 envios, então isso custa quase nada.
+  //
+  // Roda só depois do grupo inteiro: dá minutos de distância do primeiro
+  // envio, que é justamente o que uma recusa passageira precisa. Falha que
+  // sobreviver aqui continua contada em `group.failed` e no `errosAmostra`.
+  //
+  // Cobre apenas as falhas DESTA invocação — se o grupo foi retomado por outro
+  // tick, as falhas do tick anterior não voltam. Hoje um grupo cabe numa
+  // invocação só (MAX_ENVIOS_POR_INVOCACAO = 200 contra grupo de 100), então
+  // na prática cobre tudo.
+  const paraRetentar = falhas.slice(0, MAX_RETENTATIVAS);
+  if (paraRetentar.length > 0) {
+    console.log(`[devocional] grupo ${group.lane}: retentando ${paraRetentar.length} falha(s)`);
+    for (const chatid of paraRetentar) {
+      try {
+        await sendText(uazapi, chatid, job.text);
+        group.dispatched += 1;
+        group.failed -= 1;
+        group.retentadosOk = (group.retentadosOk ?? 0) + 1;
+      } catch (err) {
+        console.error(`retentativa para ${chatid} falhou:`, err instanceof Error ? err.message : String(err));
+      }
+    }
   }
 
   group.finishedAtISO = new Date().toISOString();

@@ -100,6 +100,21 @@ async function listActiveChatIds(env: Env): Promise<string[]> {
   return out;
 }
 
+/**
+ * Números do próprio projeto, que nunca podem ser alvo.
+ *
+ * `552123427056` é o WhatsApp do Zapdafé — o destino do link de captação
+ * `zapdafe.com.br/mensagem`, perfil "Fé no Zap". Ele entra no `arch:contacts`
+ * como qualquer outro contato, e em 06/10 estava na lista de alvos: o
+ * devocional era enviado para nós mesmos todo dia.
+ *
+ * Fica em código, não em env, porque é identidade do projeto e não segredo —
+ * e porque uma env nova exigiria mexer no painel da Cloudflare para uma
+ * constante que praticamente nunca muda. O número do gatilho continua vindo
+ * do env (`DEVOTIONAL_TRIGGER_PHONE`), que é configuração.
+ */
+const NUNCA_ALVO = ['552123427056'];
+
 const QUEUE_KEY = 'broadcast:queue';
 const jobKey = (id: string) => `broadcast:job:${id}`;
 const laneKey = (id: string, lane: number) => `broadcast:lane:${id}:${lane}`;
@@ -141,6 +156,7 @@ async function enqueue(env: Env, text: string, messageId: string): Promise<void>
   // opt-out: o chatid e o que está configurado no env podem estar em grafias
   // diferentes, e aí a trava não pegaria.
   const gatilho = new Set(env.DEVOTIONAL_TRIGGER_PHONE ? phoneVariants(env.DEVOTIONAL_TRIGGER_PHONE) : []);
+  for (const proprio of NUNCA_ALVO) for (const v of phoneVariants(proprio)) gatilho.add(v);
 
   // Duas fontes, uma lista. O arquivo tem o histórico (inclusive quem é
   // anterior ao índice); o índice tem quem chegou depois do último retrato.
