@@ -20,6 +20,9 @@ export interface ContactProfile {
   closingAtISO?: string;
   /** Quando dissemos "estou aqui se precisar" pela última vez — teto de 1x/24h. */
   lastOfferAtISO?: string;
+  /** Quando perguntamos se era pra parar de enviar. Um "sim" depois disso
+   *  confirma a saída, sem a pessoa precisar decorar comando nenhum. */
+  optOutPendingAtISO?: string;
 }
 
 export async function loadHistory(env: Env, chatid: string): Promise<ChatMessage[]> {

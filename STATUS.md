@@ -80,7 +80,7 @@ O `/api/admin/broadcast-resume` **foi removido** em 2026-09-20 junto com a máqu
 ### 4. Webhook AI (`/api/uazapi/webhook`)
 Recebe da instância Uazapi **luxprodutora**. Fluxo:
 1. Auth via `?secret=` (query param) — Uazapi antigo não suporta custom header
-2. Ignora fromMe, isGroup, wasSentByApi, reactions, emoji-only
+2. Ignora fromMe, isGroup, wasSentByApi, reactions, emoji-only — **menos áudio**, que é transcrito
 3. Se sender = `DEVOTIONAL_TRIGGER_PHONE` → broadcast
 4. Senão → camada de respostas rápidas (ver abaixo) e, se nada casar, conversation
 
@@ -115,9 +115,13 @@ Recebe da instância Uazapi **luxprodutora**. Fluxo:
 - Cron Trigger: **15 minutos** de execução e 30s de CPU (envio é espera de rede, quase não gasta CPU) → é o que torna o desenho atual possível, sem teto prático de contatos
 
 **Respostas rápidas (antes de chamar a IA), na ordem:**
+
+Tudo isso vive em `routeText()`, e **áudio transcrito passa pela mesma função** — antes a cadeia era inline no handler e um áudio dizendo "não quero mais receber" não teria como cair no opt-out.
+
 1. Já é opt-out → silêncio total
 2. Comando `/sair` ou `/parar` (com ou sem barra) → entra na lista de opt-out + confirmação fixa
-3. Linguagem ambígua de saída ("não quero mais receber", "descadastra") → **não** opta sozinho, só orienta a digitar o comando
+3. "Sim"/"Não" respondendo a um pedido de saída pendente → "sim" confirma a saída, "não" cancela
+4. Linguagem ambígua de saída ("não quero mais receber", "descadastra") → pergunta se é pra parar mesmo e marca `optOutPendingAtISO`
 4. **Aceno depois do encerramento** ("ok", "blz", "pode deixar", "amém") → silêncio total
 5. Regra do cérebro (gatilho exato) → resposta fixa, sem gastar token
 6. Nada disso → conversa normal com a IA
@@ -362,6 +366,41 @@ Para repetir a medição:
 ```bash
 curl -s -X POST "$AI_UAZAPI_BASE/chat/check" -H "Content-Type: application/json"   -H "token: $AI_UAZAPI_TOKEN" -d '{"numbers":["55..."]}'   # máx 100 por chamada
 ```
+
+### 🔴 Áudio era ignorado em silêncio — resolvido em 2026-10-13
+
+**O sintoma, reportado pelo cliente como urgente:** o Zapdafé não respondia áudio.
+
+**A causa:** `extractText` só olha campos de texto. Áudio chega com `text: ""`, e o guarda de "mensagem só-emoji" (`if (!text || isEmojiOnly(text))`) devolvia 200 sem fazer nada. Quem mandava voz — gente mais velha, quem não gosta de digitar — **falava com uma parede**, e não havia erro nenhum no log para denunciar isso.
+
+**Como o áudio do WhatsApp funciona** (medido na instância real, não suposto):
+- `messageType` vem em **PascalCase**: `AudioMessage`, `Conversation`, `ExtendedTextMessage`, `ReactionMessage`
+- o payload traz `content.URL` apontando para `mmg.whatsapp.net/...enc` mais `mediaKey` — é mídia **criptografada ponta a ponta** e não serve para download direto
+- `fileURL` no payload vem **vazio**
+- quem descriptografa é a Uazapi: **`POST /message/download` com `{ id: <messageid> }`** devolve `{ cached, fileURL, mimetype: "audio/mpeg" }`, um MP3 já convertido
+- o `id` que esse endpoint aceita é o **`messageid`** (`ACAE7C...`), não o campo `id`, que vem com o prefixo do dono (`552123427056:ACAE7C...`)
+
+**O fluxo agora:** detecta áudio → `/message/download` → baixa o MP3 → OpenAI `whisper-1` com `language: pt` → o texto segue pelo **mesmo `routeText`** do texto digitado. Teto de 300s por áudio e 20MB por arquivo.
+
+Se a transcrição não vier (áudio longo, download falho, Whisper fora), responde a mensagem padrão *"Recebi seu áudio, mas não consegui escutar direito agora..."*. Receber isso é muito melhor que não receber nada.
+
+⚠️ **O webhook do número do gatilho agora exige texto.** Com o desvio de áudio vindo antes, um áudio do cliente chegaria à ramificação de broadcast com `text` vazio e enfileiraria **um devocional vazio para a base inteira**. Há um `if (!text) return` explícito ali.
+
+**Custo:** `whisper-1` cobra por minuto, não por token, então `usage.ts` ganhou o contador `audioSec` e o `estimateCostUsd` soma US$ 0,006/min. Sem isso a transcrição ficaria invisível no painel — 100 áudios de 20s por dia dão ~US$ 6/mês. Dias gravados antes de hoje leem `audioSec` como 0, não como NaN.
+
+**Não testei a transcrição ponta a ponta**: a chave da OpenAI é secret do Pages e não roda daqui. O que foi verificado de verdade: o `/message/download` devolvendo MP3 (chamada real), a configuração do webhook escutando `messages` sem excluir mídia, e as 33 checagens das camadas de texto.
+
+### Mensagem padrão de saída (2026-10-13)
+
+**Pedido do cliente:** tem gente que escreve que não quer mais receber, não digita comando nenhum, e continua recebendo.
+
+A mensagem antiga mandava digitar `/sair`. Isso pressupõe ler, entender e lembrar um comando — e boa parte do público manda áudio justamente por não gostar de digitar.
+
+Agora: a intenção de saída dispara *"me responda SIM e eu paro na hora. Se foi sem querer, me responda NÃO"*, e marca `optOutPendingAtISO` no perfil. Um "sim" dentro de **12 horas** confirma a saída; um "não" cancela e responde *"então eu continuo por aqui com você"*.
+
+**Continua sendo confirmação, não saída automática**, pelo mesmo motivo de sempre: "não quero mais receber essa de hoje" e "não quero mais receber" se parecem o bastante para um padrão de texto confundir, e silenciar alguém por engano é o erro que não tem volta.
+
+`isAffirmative` e `isNegative` são listas fechadas, e **"sim" não entra nos acenos de encerramento** — lá ele poderia estar respondendo qualquer outra coisa. O perfil só é lido quando a mensagem É um sim/não, para não gastar leitura de KV em toda conversa.
 
 ## Regras de comportamento (system prompt do LLM)
 

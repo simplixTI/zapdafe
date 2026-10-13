@@ -85,3 +85,30 @@ export function matchGreeting(text: string): string | null {
   if (/^(oie?|ola|opa|salve|e ?ai)$/.test(n)) return 'Oi';
   return null;
 }
+
+// Resposta a uma pergunta de sim-ou-não. Usado só para confirmar a saída da
+// lista, nunca para interpretar conversa — por isso são listas fechadas, e
+// "sim" não entra nos acenos de encerramento (lá ele poderia estar respondendo
+// qualquer outra coisa).
+const AFIRMATIVOS = new Set([
+  'sim', 'ss', 's', 'sim quero', 'quero', 'quero sim', 'sim por favor',
+  'isso', 'isso mesmo', 'confirmo', 'confirmado', 'positivo', 'exato',
+  'pode parar', 'para sim', 'pare', 'pare sim', 'quero sair', 'sim sair',
+]);
+const NEGATIVOS = new Set([
+  'nao', 'n', 'nao nao', 'nao quero', 'nao quero sair', 'nao quero parar',
+  'nao era isso', 'foi sem querer', 'sem querer', 'engano', 'foi engano',
+  'nao precisa', 'continua', 'continue', 'pode continuar', 'negativo',
+]);
+
+/** True quando a mensagem inteira é um "sim". */
+export function isAffirmative(text: string): boolean {
+  const n = normalizeText(text);
+  return n.length > 0 && AFIRMATIVOS.has(n);
+}
+
+/** True quando a mensagem inteira é um "não". */
+export function isNegative(text: string): boolean {
+  const n = normalizeText(text);
+  return n.length > 0 && NEGATIVOS.has(n);
+}

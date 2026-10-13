@@ -2,7 +2,7 @@
 // without needing OpenAI's billing API (session-only, unreachable from
 // sk-proj-* keys).
 //
-// Keys: usage:openai:YYYY-MM-DD → { chatIn, chatOut, embed }
+// Keys: usage:openai:YYYY-MM-DD → { chatIn, chatOut, embed, audioSec }
 // TTL: 90 days (rolling window; older days automatically drop)
 
 import type { Env } from './auth';
@@ -15,12 +15,18 @@ const PRICING = {
   chatInputPerM: 0.15,
   chatOutputPerM: 0.60,
   embedPerM: 0.02,
+  // whisper-1 cobra por minuto de áudio, não por token. Sem esta linha a
+  // transcrição ficaria fora do painel de custos: 100 áudios de 20s por dia
+  // dão ~US$ 6/mês, que não é ruído num projeto deste tamanho.
+  audioPerMinute: 0.006,
 };
 
 export interface DayUsage {
   chatIn: number;
   chatOut: number;
   embed: number;
+  /** Segundos de áudio transcritos (whisper-1). */
+  audioSec: number;
 }
 
 export interface CostSummary {
@@ -41,16 +47,19 @@ const key = (date: string) => `usage:openai:${date}`;
 
 async function readDay(env: Env, date: string): Promise<DayUsage> {
   const raw = await env.KV.get(key(date));
-  if (!raw) return { chatIn: 0, chatOut: 0, embed: 0 };
+  if (!raw) return { chatIn: 0, chatOut: 0, embed: 0, audioSec: 0 };
   try {
     const parsed = JSON.parse(raw) as DayUsage;
     return {
       chatIn: Number(parsed.chatIn ?? 0),
       chatOut: Number(parsed.chatOut ?? 0),
       embed: Number(parsed.embed ?? 0),
+      // Dias gravados antes de 2026-10-13 não têm o campo: lidos como 0 em vez
+      // de NaN, que contaminaria a soma de custo inteira.
+      audioSec: Number(parsed.audioSec ?? 0),
     };
   } catch {
-    return { chatIn: 0, chatOut: 0, embed: 0 };
+    return { chatIn: 0, chatOut: 0, embed: 0, audioSec: 0 };
   }
 }
 
@@ -62,7 +71,8 @@ export function estimateCostUsd(day: DayUsage): number {
   return (
     (day.chatIn / 1_000_000) * PRICING.chatInputPerM +
     (day.chatOut / 1_000_000) * PRICING.chatOutputPerM +
-    (day.embed / 1_000_000) * PRICING.embedPerM
+    (day.embed / 1_000_000) * PRICING.embedPerM +
+    (day.audioSec / 60) * PRICING.audioPerMinute
   );
 }
 
@@ -78,6 +88,7 @@ export async function recordUsage(env: Env, delta: Partial<DayUsage>): Promise<v
       chatIn: current.chatIn + (delta.chatIn ?? 0),
       chatOut: current.chatOut + (delta.chatOut ?? 0),
       embed: current.embed + (delta.embed ?? 0),
+      audioSec: current.audioSec + (delta.audioSec ?? 0),
     };
     await writeDay(env, date, next);
   } catch (err) {
@@ -93,8 +104,8 @@ export async function costSummary(env: Env): Promise<CostSummary> {
   const todayKey = brasiliaDateKey(now);
   const today = await readDay(env, todayKey);
 
-  const last30d: DayUsage = { chatIn: 0, chatOut: 0, embed: 0 };
-  const currentMonth: DayUsage = { chatIn: 0, chatOut: 0, embed: 0 };
+  const last30d: DayUsage = { chatIn: 0, chatOut: 0, embed: 0, audioSec: 0 };
+  const currentMonth: DayUsage = { chatIn: 0, chatOut: 0, embed: 0, audioSec: 0 };
   const monthPrefix = todayKey.slice(0, 7); // YYYY-MM
 
   for (let i = 0; i < 30; i++) {
@@ -103,10 +114,12 @@ export async function costSummary(env: Env): Promise<CostSummary> {
     last30d.chatIn += d.chatIn;
     last30d.chatOut += d.chatOut;
     last30d.embed += d.embed;
+    last30d.audioSec += d.audioSec;
     if (date.startsWith(monthPrefix)) {
       currentMonth.chatIn += d.chatIn;
       currentMonth.chatOut += d.chatOut;
       currentMonth.embed += d.embed;
+      currentMonth.audioSec += d.audioSec;
     }
   }
 

@@ -19,8 +19,12 @@ import {
 } from '../../_shared/conversation';
 import { getPlaylistTracks, formatPlaylistForPrompt, type Track } from '../../_shared/spotify';
 import { runBroadcast, markActive } from '../../_shared/broadcast';
+import { transcribeAudio } from '../../_shared/transcribe';
 import { isOptedOut, addOptOut } from '../../_shared/optouts';
-import { isOptOutCommand, isOptOutIntent, isAcknowledgement, matchGreeting } from '../../_shared/intents';
+import {
+  isOptOutCommand, isOptOutIntent, isAcknowledgement, matchGreeting,
+  isAffirmative, isNegative,
+} from '../../_shared/intents';
 import { containsOffer, looksLikeClosing, stripOfferSentences, withinHours } from '../../_shared/tone';
 import { loadBrain, matchReply, renderResponse, type ReplyRule } from '../../_shared/rules';
 import {
@@ -35,8 +39,12 @@ interface UazapiWebhookMessage {
     conversation?: string;
     extendedTextMessage?: { text?: string };
     reactionMessage?: { text?: string; key?: unknown };
+    audioMessage?: { seconds?: number; ptt?: boolean };
   };
   messageType?: string;
+  messageid?: string;
+  /** Payload da Uazapi para mídia: PTT, duração, etc. */
+  content?: { PTT?: boolean; seconds?: number; text?: string; [k: string]: unknown };
   text?: string;
   fromMe?: boolean;
   isGroup?: boolean;
@@ -70,8 +78,29 @@ const ACK_SILENCE_WINDOW_HOURS = 6;
 
 const OPT_OUT_CONFIRMATION =
   'Tudo bem. Não vou te enviar mais mensagens. Se um dia quiser conversar de novo, é só me chamar por aqui.';
-const OPT_OUT_NUDGE =
-  'Entendi. Se quiser parar de receber minhas mensagens, digite /sair (ou /parar) que eu confirmo na hora.';
+// Quando o áudio chega mas não dá para transcrever (muito longo, falha de
+// download, Whisper fora do ar). Reconhece que recebeu — o pior cenário é a
+// pessoa falar e não ter resposta nenhuma, que é o que acontecia até 13/10.
+const AUDIO_FALLBACK =
+  'Recebi seu áudio, mas não consegui escutar direito agora. Se puder me escrever, eu leio com atenção.';
+// Pedido do cliente em 2026-10-13: tem gente que escreve que não quer mais
+// receber, não digita comando nenhum, e continuava recebendo.
+//
+// A mensagem antiga mandava digitar "/sair". Isso pressupõe que a pessoa leia,
+// entenda e lembre de um comando — e boa parte do público aqui é gente mais
+// velha, que manda áudio justamente por não gostar de digitar. Responder SIM é
+// o que qualquer pessoa faz sem pensar.
+//
+// Continua sendo uma confirmação, e não saída automática, pelo mesmo motivo de
+// sempre: "não quero mais receber ESSA de hoje" e "não quero mais receber" se
+// parecem o bastante para um padrão de texto confundir, e silenciar alguém por
+// engano é o erro que não tem volta.
+const OPT_OUT_CONFIRM =
+  'Entendi. Se você quiser que eu pare de te enviar as mensagens, me responda SIM e eu paro na hora. Se foi sem querer, me responda NÃO que a gente continua como antes.';
+const OPT_OUT_KEPT =
+  'Tudo bem, então eu continuo por aqui com você. Que Deus te abençoe.';
+// Por quanto tempo um "sim" ainda conta como resposta ao pedido de saída.
+const OPT_OUT_CONFIRM_WINDOW_HOURS = 12;
 
 // ---------- helpers ----------
 
@@ -106,6 +135,33 @@ function isReaction(m: UazapiWebhookMessage): boolean {
 function isEmojiOnly(text: string): boolean {
   if (!text) return true;
   return !/[\p{L}\p{N}]/u.test(text);
+}
+
+/**
+ * Dados do áudio recebido, ou null quando a mensagem não é áudio.
+ *
+ * O `messageType` da Uazapi vem em PascalCase ("AudioMessage"), e o id que o
+ * `/message/download` aceita é o `messageid` — sem o prefixo do dono que
+ * aparece no campo `id` ("552123427056:ACAE7C..."). Conferido na instância
+ * real em 2026-10-13.
+ */
+function audioInfo(m: UazapiWebhookMessage): { id: string; seconds?: number } | null {
+  const tipo = (m.messageType ?? '').toLowerCase();
+  const ehAudio =
+    tipo.includes('audio') ||
+    tipo === 'ptt' ||
+    m.content?.PTT === true ||
+    m.message?.audioMessage !== undefined;
+  if (!ehAudio) return null;
+  const id = m.messageid ?? m.key?.id ?? '';
+  if (!id) return null;
+  const seconds =
+    typeof m.content?.seconds === 'number'
+      ? m.content.seconds
+      : typeof m.message?.audioMessage?.seconds === 'number'
+      ? m.message.audioMessage.seconds
+      : undefined;
+  return { id, seconds };
 }
 
 function extractChatId(m: UazapiWebhookMessage): string {
@@ -211,6 +267,12 @@ async function resolveContactName(env: Env, chatid: string): Promise<string | nu
 async function handleOptOut(env: Env, chatid: string, phone: string): Promise<void> {
   await addOptOut(env, phone);
   await respondAsText(env, chatid, OPT_OUT_CONFIRMATION);
+}
+
+/** Pergunta se é pra parar mesmo, e deixa a pergunta marcada no perfil. */
+async function handleOptOutIntent(env: Env, chatid: string): Promise<void> {
+  await respondAsText(env, chatid, OPT_OUT_CONFIRM);
+  await updateProfile(env, chatid, { optOutPendingAtISO: new Date().toISOString() });
 }
 
 // Canned replies skip the history write on purpose: the whole point of a rule
@@ -369,6 +431,111 @@ async function handleConversation(
   }
 }
 
+/**
+ * Camada de respostas rápidas + conversa, para UM texto já conhecido.
+ *
+ * Extraída do handler em 2026-10-13 para que o áudio transcrito passe
+ * exatamente pelo mesmo caminho do texto. Antes a cadeia vivia inline no
+ * `onRequest`, e um áudio dizendo "não quero mais receber" não teria como
+ * cair no opt-out. Devolve o caminho tomado, que vai para o log.
+ */
+async function routeText(
+  env: Env,
+  chatid: string,
+  phone: string,
+  text: string,
+): Promise<string> {
+  // An explicit command is the only thing that actually opts someone out
+  if (isOptOutCommand(text)) {
+    await handleOptOut(env, chatid, phone);
+    return 'opted_out_now';
+  }
+
+  // "Sim" ou "não" respondendo ao pedido de saída que ficou pendente.
+  //
+  // O perfil só é lido quando a mensagem É um sim/não, para não gastar uma
+  // leitura de KV em toda conversa.
+  if (isAffirmative(text) || isNegative(text)) {
+    const profile = await loadProfile(env, chatid);
+    if (withinHours(profile.optOutPendingAtISO, OPT_OUT_CONFIRM_WINDOW_HOURS)) {
+      if (isAffirmative(text)) {
+        await handleOptOut(env, chatid, phone);
+        return 'opted_out_confirmed';
+      }
+      await respondAsText(env, chatid, OPT_OUT_KEPT);
+      await updateProfile(env, chatid, { optOutPendingAtISO: undefined });
+      return 'opt_out_cancelado';
+    }
+  }
+
+  // Linguagem ambígua de saída: a pessoa não precisa decorar comando nenhum,
+  // mas também não é silenciada por uma frase mal lida — ver handleOptOutIntent.
+  if (isOptOutIntent(text)) {
+    await handleOptOutIntent(env, chatid);
+    return 'opt_out_intent';
+  }
+
+  // Aceno depois da mensagem de encerramento ("ok", "blz", "pode deixar",
+  // "amém") não pede resposta — responder aí é justamente o que o cliente
+  // chamou de provocar diálogo. Vem antes do cérebro porque "amém" tem regra
+  // fixa lá, que fora desse contexto continua valendo.
+  if (isAcknowledgement(text)) {
+    const profile = await loadProfile(env, chatid);
+    if (withinHours(profile.closingAtISO, ACK_SILENCE_WINDOW_HOURS)) return 'ack_after_closing';
+  }
+
+  const brain = await loadBrain(env);
+
+  // Admin-managed canned reply — answered without an LLM call
+  const rule = matchReply(brain, text);
+  if (rule) {
+    await handleRuleReply(env, chatid, rule);
+    return `rule_reply:${rule.id}`;
+  }
+
+  // Cumprimento seco ("Oi", "Boa tarde Zap!") tem resposta fixa. Vem DEPOIS do
+  // cérebro, para uma regra do painel sempre ganhar, e só vale para quem já
+  // conversou antes — primeira mensagem segue sendo apresentação + nome.
+  const greeting = matchGreeting(text);
+  if (greeting) {
+    const history = await loadHistory(env, chatid);
+    if (history.length > 0) {
+      await handleGreeting(env, chatid, greeting);
+      return 'greeting';
+    }
+  }
+
+  await handleConversation(env, chatid, text, brain.instructions);
+  return 'reply';
+}
+
+/**
+ * Áudio: transcreve e trata como se a pessoa tivesse escrito aquilo.
+ *
+ * Até 13/10 o webhook ignorava áudio em silêncio — quem mandava voz falava com
+ * uma parede. Se a transcrição não vier, responde a mensagem padrão: receber
+ * "não consegui escutar" é muito melhor que não receber nada.
+ */
+async function handleAudio(
+  env: Env,
+  chatid: string,
+  phone: string,
+  audio: { id: string; seconds?: number },
+): Promise<string> {
+  let texto: string | null = null;
+  try {
+    texto = await transcribeAudio(env, aiUazapiEnv(env), audio.id, audio.seconds);
+  } catch (err) {
+    console.error('transcrição falhou:', err instanceof Error ? err.message : String(err));
+  }
+  if (!texto) {
+    await respondAsText(env, chatid, AUDIO_FALLBACK);
+    return 'audio_fallback';
+  }
+  console.log(`áudio de ${audio.seconds ?? '?'}s transcrito: "${texto.slice(0, 80)}"`);
+  return `audio -> ${await routeText(env, chatid, phone, texto)}`;
+}
+
 // ---------- devotional broadcast branch — logic lives in _shared/broadcast.ts ----------
 
 // ---------- entry ----------
@@ -414,8 +581,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
   }
+  // Áudio: o `extractText` não acha texto nenhum nele, então sem este desvio a
+  // mensagem cairia no guarda de "só emoji" logo abaixo e seria ignorada em
+  // silêncio — que é exatamente o que acontecia até 2026-10-13.
+  const audio = audioInfo(m);
+
   // Emoji-only messages ("❤️", "👍👍", "🙏🏼🙏🏼") — treat as a silent nod
-  if (!text || isEmojiOnly(text)) {
+  if (!audio && (!text || isEmojiOnly(text))) {
     return new Response(JSON.stringify({ ok: true, kind: 'ignored_emoji_only' }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
@@ -424,8 +596,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const phone = phoneFromChatId(chatid);
   const messageId = m.key?.id ?? `${chatid}:${m.messageTimestamp ?? Date.now()}`;
 
-  // Devotional broadcast branch
+  // Devotional broadcast branch. Só com texto: um áudio do número do gatilho
+  // não pode virar um devocional vazio para a base inteira.
   if (phone === env.DEVOTIONAL_TRIGGER_PHONE) {
+    if (!text) {
+      return new Response(JSON.stringify({ ok: true, kind: 'ignored_trigger_sem_texto' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
     runBroadcast(env, text, messageId, context);
     return new Response(JSON.stringify({ ok: true, kind: 'broadcast' }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
@@ -452,84 +630,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }),
   );
 
-  // An explicit command is the only thing that actually opts someone out
-  if (isOptOutCommand(text)) {
-    context.waitUntil(
-      handleOptOut(env, chatid, phone).catch(err => {
-        console.error('opt-out error:', err instanceof Error ? err.message : String(err));
-      }),
-    );
-    return new Response(JSON.stringify({ ok: true, kind: 'opted_out_now' }), {
-      status: 200, headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  // Fuzzier phrasing only points at the command — never decides for the person
-  if (isOptOutIntent(text)) {
-    context.waitUntil(
-      respondAsText(env, chatid, OPT_OUT_NUDGE).catch(err => {
-        console.error('opt-out nudge error:', err instanceof Error ? err.message : String(err));
-      }),
-    );
-    return new Response(JSON.stringify({ ok: true, kind: 'opt_out_nudge' }), {
-      status: 200, headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  // Aceno depois da mensagem de encerramento ("ok", "blz", "pode deixar",
-  // "amém") não pede resposta — responder aí é justamente o que o cliente
-  // chamou de provocar diálogo. Vem antes do cérebro porque "amém" tem regra
-  // fixa lá, que fora desse contexto continua valendo.
-  if (isAcknowledgement(text)) {
-    const profile = await loadProfile(env, chatid);
-    if (withinHours(profile.closingAtISO, ACK_SILENCE_WINDOW_HOURS)) {
-      return new Response(JSON.stringify({ ok: true, kind: 'ack_after_closing' }), {
-        status: 200, headers: { 'Content-Type': 'application/json' },
-      });
-    }
-  }
-
-  const brain = await loadBrain(env);
-
-  // Admin-managed canned reply — answered without an LLM call
-  const rule = matchReply(brain, text);
-  if (rule) {
-    context.waitUntil(
-      handleRuleReply(env, chatid, rule).catch(err => {
-        console.error('rule reply error:', err instanceof Error ? err.message : String(err));
-      }),
-    );
-    return new Response(JSON.stringify({ ok: true, kind: 'rule_reply', ruleId: rule.id }), {
-      status: 200, headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  // Cumprimento seco ("Oi", "Boa tarde Zap!") tem resposta fixa. Vem DEPOIS do
-  // cérebro, para uma regra do painel sempre ganhar, e só vale para quem já
-  // conversou antes — primeira mensagem segue sendo apresentação + nome.
-  const greeting = matchGreeting(text);
-  if (greeting) {
-    const history = await loadHistory(env, chatid);
-    if (history.length > 0) {
-      context.waitUntil(
-        handleGreeting(env, chatid, greeting).catch(err => {
-          console.error('greeting error:', err instanceof Error ? err.message : String(err));
-        }),
-      );
-      return new Response(JSON.stringify({ ok: true, kind: 'greeting' }), {
-        status: 200, headers: { 'Content-Type': 'application/json' },
-      });
-    }
-  }
-
-  // Conversation branch — run async so webhook returns fast
+  // Daqui pra frente é tudo igual para áudio e texto: o áudio é transcrito e
+  // segue pelo MESMO `routeText`. O caminho tomado vai para o log, porque a
+  // resposta HTTP precisa sair antes de a decisão existir.
   context.waitUntil(
-    handleConversation(env, chatid, text, brain.instructions).catch(err => {
-      console.error('conversation error:', err instanceof Error ? err.message : String(err));
-    }),
+    (audio ? handleAudio(env, chatid, phone, audio) : routeText(env, chatid, phone, text))
+      .then(kind => { console.log(`[webhook] ${chatid} -> ${kind}`); })
+      .catch(err => {
+        console.error('webhook route error:', err instanceof Error ? err.message : String(err));
+      }),
   );
 
-  return new Response(JSON.stringify({ ok: true, kind: 'reply' }), {
+  return new Response(JSON.stringify({ ok: true, kind: audio ? 'audio' : 'text' }), {
     status: 200, headers: { 'Content-Type': 'application/json' },
   });
 };
