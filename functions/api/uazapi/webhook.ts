@@ -20,6 +20,10 @@ import {
 import { getPlaylistTracks, formatPlaylistForPrompt, type Track } from '../../_shared/spotify';
 import { runBroadcast, markActive } from '../../_shared/broadcast';
 import { transcribeAudio } from '../../_shared/transcribe';
+import {
+  isTeamPhone, parseHandoffCommand, pausarConversa, retomarConversa,
+  conversaPausada, looksLikeHumanTakeover, PAUSE_HOURS, type HandoffCommand,
+} from '../../_shared/handoff';
 import { isOptedOut, addOptOut } from '../../_shared/optouts';
 import {
   isOptOutCommand, isOptOutIntent, isAcknowledgement, matchGreeting,
@@ -267,6 +271,27 @@ async function resolveContactName(env: Env, chatid: string): Promise<string | nu
 async function handleOptOut(env: Env, chatid: string, phone: string): Promise<void> {
   await addOptOut(env, phone);
   await respondAsText(env, chatid, OPT_OUT_CONFIRMATION);
+}
+
+/**
+ * Passa (ou devolve) o atendimento de uma conversa. Quem manda é alguém da
+ * equipe, de outra conversa — a psicóloga atende pelo WhatsApp dela, então o
+ * Zapdafé não participa daquele atendimento e precisa ser avisado.
+ */
+async function handleHandoff(env: Env, chatid: string, cmd: HandoffCommand): Promise<string> {
+  if (cmd.action === 'voltar') {
+    await retomarConversa(env, cmd.phone);
+    await respondAsText(env, chatid, `Pronto. O Zapdafé voltou a responder o número ${cmd.phone}.`);
+    return `handoff_voltar:${cmd.phone}`;
+  }
+  await pausarConversa(env, cmd.phone);
+  await respondAsText(
+    env,
+    chatid,
+    `Pronto. O Zapdafé não vai responder o número ${cmd.phone} pelas próximas ${PAUSE_HOURS} horas, ` +
+      `e depois volta sozinho. Se o atendimento acabar antes, me manda "/voltar ${cmd.phone}".`,
+  );
+  return `handoff_pausar:${cmd.phone}`;
 }
 
 /** Pergunta se é pra parar mesmo, e deixa a pergunta marcada no perfil. */
@@ -571,6 +596,30 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const fromMe = extractFromMe(m);
   const isGroup = m.isGroup || chatid.endsWith('@g.us');
 
+  // Mensagem digitada À MÃO no número oficial do Zapdafé — alguém da equipe
+  // falando com o contato, não a IA. Se for a frase de apresentação ("Aqui é a
+  // Denise do ZapdaFé"), o bot sai dessa conversa por 3 horas.
+  //
+  // Vem antes do descarte de `fromMe` logo abaixo, que é onde isso morria.
+  // O que separa a pessoa da IA é o `wasSentByApi`: tudo que o Zapdafé envia
+  // vem marcado `true` (conferido: 120 de 120 na instância).
+  //
+  // Não responde nada, de propósito: qualquer confirmação apareceria na
+  // conversa do contato, no meio do atendimento. O sinal de que funcionou é a
+  // IA ficar quieta — e a frase já é, por si, a apresentação que o contato lê.
+  if (fromMe && !m.wasSentByApi && chatid && !isGroup && looksLikeHumanTakeover(text)) {
+    context.waitUntil(
+      pausarConversa(env, phoneFromChatId(chatid))
+        .then(() => { console.log(`[webhook] ${chatid} -> handoff_na_conversa (${PAUSE_HOURS}h)`); })
+        .catch(err => {
+          console.error('handoff na conversa:', err instanceof Error ? err.message : String(err));
+        }),
+    );
+    return new Response(JSON.stringify({ ok: true, kind: 'handoff_na_conversa' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   // Ignore rules — silent 200 so Uazapi doesn't retry
   if (!chatid || fromMe || m.wasSentByApi || isGroup) {
     return new Response('ignored', { status: 200 });
@@ -595,6 +644,28 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   const phone = phoneFromChatId(chatid);
   const messageId = m.key?.id ?? `${chatid}:${m.messageTimestamp ?? Date.now()}`;
+
+  // Comando de passagem de atendimento. Vem ANTES do devocional de propósito:
+  // o número do gatilho dispara devocional com QUALQUER texto, então sem esta
+  // ordem um "/pausar 5521..." mandado por ele viraria o devocional do dia
+  // para a base inteira.
+  //
+  // Só texto digitado: número de telefone ditado em áudio é pedir erro.
+  if (text && isTeamPhone(env, phone)) {
+    const cmd = parseHandoffCommand(text);
+    if (cmd) {
+      context.waitUntil(
+        handleHandoff(env, chatid, cmd)
+          .then(kind => { console.log(`[webhook] ${chatid} -> ${kind}`); })
+          .catch(err => {
+            console.error('handoff error:', err instanceof Error ? err.message : String(err));
+          }),
+      );
+      return new Response(JSON.stringify({ ok: true, kind: 'handoff' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
 
   // Devotional broadcast branch. Só com texto: um áudio do número do gatilho
   // não pode virar um devocional vazio para a base inteira.
@@ -629,6 +700,29 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.error('markActive error:', err instanceof Error ? err.message : String(err));
     }),
   );
+
+  // Conversa nas mãos de uma pessoa: o bot fica calado.
+  //
+  // A única exceção é o "/sair". Se alguém pede para parar de receber durante
+  // um atendimento e isso se perde, a pessoa segue recebendo o devocional todo
+  // dia — foi exatamente a reclamação de 18/09, que levou cinco dias para ser
+  // notada. Uma mensagem de confirmação no meio do atendimento é um incômodo
+  // pequeno ao lado disso.
+  if (await conversaPausada(env, phone)) {
+    if (text && isOptOutCommand(text)) {
+      context.waitUntil(
+        handleOptOut(env, chatid, phone).catch(err => {
+          console.error('opt-out durante pausa:', err instanceof Error ? err.message : String(err));
+        }),
+      );
+      return new Response(JSON.stringify({ ok: true, kind: 'opted_out_durante_pausa' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true, kind: 'pausado' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }
 
   // Daqui pra frente é tudo igual para áudio e texto: o áudio é transcrito e
   // segue pelo MESMO `routeText`. O caminho tomado vai para o log, porque a
