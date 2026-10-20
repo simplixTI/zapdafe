@@ -402,6 +402,36 @@ Agora: a intenção de saída dispara *"me responda SIM e eu paro na hora. Se fo
 
 `isAffirmative` e `isNegative` são listas fechadas, e **"sim" não entra nos acenos de encerramento** — lá ele poderia estar respondendo qualquer outra coisa. O perfil só é lido quando a mensagem É um sim/não, para não gastar leitura de KV em toda conversa.
 
+### Pausa para atendimento humano (2026-10-20)
+
+**Pedido do cliente:** a psicóloga (Denise) atende pelo WhatsApp **oficial do Zapdafé**, por aparelho conectado, e a IA não pode responder no meio do atendimento. O bot sai da conversa por **3 horas** e volta sozinho.
+
+Código em `functions/_shared/handoff.ts`. Duas portas, porque a principal não foi possível verificar:
+
+**Porta 1 — a frase na própria conversa (é o que o cliente pediu).** Ela digita *"Aqui é a Denise do ZapdaFé"* na conversa da pessoa. A frase faz duas coisas de uma vez: apresenta a Denise ao contato e tira o bot do caminho. O nome é livre (`FRASE_NA_CONVERSA`), então outra pessoa da equipe funciona sem deploy.
+
+Isso chega ao webhook como `fromMe` com **`wasSentByApi: false`** — é esse campo que separa o que uma PESSOA digitou do que a IA enviou (conferido: 120 de 120 das nossas são via API). A checagem vem **antes** do descarte de `fromMe`, que é onde isso morria.
+
+Não responde nada, de propósito: qualquer confirmação apareceria na conversa do contato, no meio do atendimento. O sinal de que funcionou é a IA ficar quieta.
+
+⚠️ **Não verificado.** Em 20/10 não existia **nenhuma** mensagem digitada à mão na instância, só via API, então não deu para provar que a Uazapi repassa esse evento ao webhook. O teste é pedir para alguém digitar a frase pelo número oficial e conferir se a chave `pause:<telefone>` aparece no KV. Se não aparecer, a Uazapi não emite webhook para mensagem de aparelho conectado, e o fluxo real passa a ser a porta 2 — e aí é preciso autorizar o número da Denise em `EQUIPE`.
+
+**Porta 2 — comando remoto**, de um número da equipe (o do gatilho já entra via env):
+```
+/pausar 5531988887777
+/voltar 5531988887777     (encerra antes das 3h)
+```
+
+⚠️ **O comando é lido ANTES da ramificação do devocional.** O número do gatilho dispara devocional com *qualquer* texto — sem essa ordem, um `/pausar 5531...` vindo dele viraria o devocional do dia para a base inteira.
+
+**A pausa é uma chave de KV por número, com TTL de 3h.** O TTL é o próprio prazo: não há data para comparar, nem rotina de limpeza, e o bot volta sozinho. Grava as **duas grafias** do telefone, como o opt-out, senão a pausa não pegaria um chatid na outra forma. Chave por número também evita leitura-antes-de-escrita, que é o que apagou nomes de contato em 25/09.
+
+**Durante a pausa o bot fica calado** — nem cérebro, nem cumprimento, nem IA. A única exceção é o `/sair`: pedido de saída perdido no meio de um atendimento significa a pessoa recebendo o devocional todo dia, que foi a reclamação de 18/09.
+
+✅ **O devocional da manhã continua saindo normalmente para quem está em atendimento** — confirmado pelo cliente em 20/10. A pausa é da conversa, não do disparo. No código isso é simplesmente a ausência de qualquer checagem de pausa em `broadcast.ts` e no Worker; os alvos são filtrados só por gatilho/`NUNCA_ALVO`, opt-out e janela de 90 dias. **Não é esquecimento — é decisão.**
+
+**Pendência:** a pausa não aparece no `/admin`. Hoje só se enxerga listando `pause:` no KV.
+
 ## Regras de comportamento (system prompt do LLM)
 
 - Tom: **companheiro carinhoso, parceiro**, português BR contemporâneo, frases curtas
@@ -655,5 +685,7 @@ O projeto não tem test runner. Para validar função pura (`normalizeText`, `pl
 ```bash
 npx esbuild scripts/_check-x.ts --bundle --platform=node --format=esm --outfile=/tmp/x.mjs && node /tmp/x.mjs
 ```
+
+⚠️ **Nunca passe script Python pelo stdin (`python - <<'PY'`) para editar arquivo com acento ou regex.** Nesta máquina o stdin chega em cp1252: acento vira mojibake e `\1` de backreference vira o byte 0x01 — que compila, não dá erro, e deixa a regex nunca casando. Mordeu duas vezes (24/09 e 20/10). Escreva o script num arquivo `.py` em UTF-8 e rode `python arquivo.py`, ou use a ferramenta de edição direta.
 
 Dá pra simular o broadcast inteiro assim, com KV falso e `globalThis.fetch` stubado interceptando o `/api/admin/broadcast-resume` pra imitar a invocação nova do Worker. Foi como o desenho de faixas foi conferido (1, 5, 10, 29, 30, 31, 221, 300 e 480 contatos: zero duplicado, zero lacuna).
