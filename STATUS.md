@@ -424,7 +424,16 @@ Isso chega ao webhook como `fromMe` com **`wasSentByApi: false`** — é esse ca
 
 Não responde nada, de propósito: qualquer confirmação apareceria na conversa do contato, no meio do atendimento. O sinal de que funcionou é a IA ficar quieta.
 
-⚠️ **Não verificado.** Em 20/10 não existia **nenhuma** mensagem digitada à mão na instância, só via API, então não deu para provar que a Uazapi repassa esse evento ao webhook. O teste é pedir para alguém digitar a frase pelo número oficial e conferir se a chave `pause:<telefone>` aparece no KV. Se não aparecer, a Uazapi não emite webhook para mensagem de aparelho conectado, e o fluxo real passa a ser a porta 2 — e aí é preciso autorizar o número da Denise em `EQUIPE`.
+**A equipe inteira usa o número oficial do Zapdafé** — confirmado pelo cliente em 23/10. Denise, Flávia e o Pastor Everaldo entram todos por aparelho conectado na mesma conta. Por isso `EQUIPE` está vazia e **nenhum número precisa ser autorizado**: quem identifica a pessoa é a frase, não o telefone.
+
+⚠️ **Porta 1 ainda NÃO verificada.** Em 23/10 continuava não existindo **nenhuma** mensagem digitada à mão na instância (todas as nossas via API), então segue sem prova de que a Uazapi repassa esse evento ao webhook.
+
+**O teste, que leva um minuto:** alguém digita a frase pelo número oficial numa conversa qualquer, e se confere se a chave apareceu:
+```bash
+npx wrangler kv key list --namespace-id 71f423871ba94149a3bb8f67b4af9642 --remote --prefix "pause:"
+```
+
+Se não aparecer, a Uazapi não emite webhook para mensagem de aparelho conectado. **Não é um impasse:** o fluxo passa a ser a porta 2 pelo número do gatilho, que já é autorizado via env — ninguém fica sem caminho, só muda quem manda o comando.
 
 **Porta 2 — comando remoto**, de um número da equipe (o do gatilho já entra via env):
 ```
