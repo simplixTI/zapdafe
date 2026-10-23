@@ -61,10 +61,28 @@ export function isTeamPhone(env: Env, phone: string): boolean {
   return phoneVariants(alvo).some((v) => autorizados.has(v));
 }
 
-// A frase que tira o bot da conversa. "Aqui é a Denise do ZapdaFé" é a que o
-// cliente pediu, mas o nome é livre: no dia em que outra pessoa da equipe
-// assumir, a frase dela funciona sem precisar de deploy.
-const FRASE_NA_CONVERSA = /\baqui (e|eh|quem fala e) (a|o) \p{L}[\p{L}'-]* (do|da) zap ?da ?fe\b/u;
+// A frase que tira o bot da conversa: alguém da equipe se apresentando.
+//
+// Cobre "Aqui é a Denise do ZapdaFé", "Olá aqui é a Flávia" e "Olá aqui é o
+// Pastor Everaldo" — as três que o cliente pediu, em 20 e 23/10.
+//
+// O "do Zapdafé" no fim **deixou de ser exigido** em 23/10: as frases novas não
+// têm, e pedir deploy a cada nome novo da equipe já se mostrou um ciclo (foram
+// três pedidos em quatro dias). Agora basta "aqui é a/o <nome>", com ou sem
+// saudação antes, com ou sem título ("o Pastor Everaldo" passa).
+//
+// Soltar assim é seguro porque esta frase só é olhada em mensagem DIGITADA À
+// MÃO no número oficial: o que a IA envia vem com `wasSentByApi: true` e nunca
+// chega aqui, e mensagem de contato é `fromMe: false`. Ou seja, quem dispara
+// isso é necessariamente uma pessoa da equipe escrevendo na conversa.
+//
+// Acento e caixa não importam: `normalizeText` já tira os dois, então "Olá",
+// "Ola" e "OLÁ" chegam iguais.
+//
+// "sou" fica FORA dos conectores de propósito: a apresentação da própria IA é
+// "Olá, que bom ter você por aqui. Sou o Zapdafé", e com "sou" na lista o
+// trecho "por aqui. Sou o" casaria.
+const FRASE_NA_CONVERSA = /\baqui (e|eh|quem fala e|quem fala|fala) (a|o) \p{L}[\p{L}'-]*/u;
 
 /**
  * True quando é alguém da equipe se apresentando na conversa, o que na prática

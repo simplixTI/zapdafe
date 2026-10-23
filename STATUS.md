@@ -408,7 +408,17 @@ Agora: a intenção de saída dispara *"me responda SIM e eu paro na hora. Se fo
 
 Código em `functions/_shared/handoff.ts`. Duas portas, porque a principal não foi possível verificar:
 
-**Porta 1 — a frase na própria conversa (é o que o cliente pediu).** Ela digita *"Aqui é a Denise do ZapdaFé"* na conversa da pessoa. A frase faz duas coisas de uma vez: apresenta a Denise ao contato e tira o bot do caminho. O nome é livre (`FRASE_NA_CONVERSA`), então outra pessoa da equipe funciona sem deploy.
+**Porta 1 — a frase na própria conversa (é o que o cliente pediu).** A pessoa da equipe digita a apresentação dela na conversa do contato. A frase faz duas coisas de uma vez: apresenta quem assumiu e tira o bot do caminho.
+
+Frases pedidas até agora: *"Aqui é a Denise do ZapdaFé"* (20/10), *"Olá aqui é a Flávia"* e *"Olá aqui é o Pastor Everaldo"* (23/10).
+
+**O `(do|da) zapdafé` deixou de ser exigido em 23/10.** As frases novas não têm, e pedir deploy a cada nome novo já virou um ciclo — três pedidos em quatro dias. Hoje `FRASE_NA_CONVERSA` é só `aqui é a/o <nome>`, com ou sem saudação antes, com ou sem título ("o Pastor Everaldo" passa). Qualquer nome funciona sem deploy.
+
+Soltar assim é seguro porque a frase **só é olhada em mensagem digitada à mão no número oficial**: o que a IA envia tem `wasSentByApi: true` e nunca chega nessa checagem, e mensagem de contato é `fromMe: false`. Quem dispara é necessariamente alguém da equipe escrevendo na conversa.
+
+Acento e caixa nunca importaram: `normalizeText` remove os dois, então "Olá", "Ola" e "OLÁ" chegam iguais.
+
+⚠️ **"sou" está fora dos conectores de propósito.** A apresentação da própria IA é *"Olá, que bom ter você por aqui. Sou o Zapdafé"* — com "sou" na lista, o trecho "por aqui. Sou o" casaria e a IA se calaria sozinha. Tem teste cobrindo exatamente essa frase.
 
 Isso chega ao webhook como `fromMe` com **`wasSentByApi: false`** — é esse campo que separa o que uma PESSOA digitou do que a IA enviou (conferido: 120 de 120 das nossas são via API). A checagem vem **antes** do descarte de `fromMe`, que é onde isso morria.
 
