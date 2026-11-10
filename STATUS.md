@@ -451,6 +451,33 @@ Se não aparecer, a Uazapi não emite webhook para mensagem de aparelho conectad
 
 **Pendência:** a pausa não aparece no `/admin`. Hoje só se enxerga listando `pause:` no KV.
 
+### 2026-11-09 — "o devocional parou de enviar" (não parou) + uma bomba datada no painel
+
+**O cliente reportou que o devocional parou. Ele não parou.** Medido no disparo de 09/11 11:42 UTC:
+
+- job enfileirado, fila limpa, **6 faixas, 544 alvos, 544 enviados, 0 falhas**, todas concluídas
+- instância Uazapi `connected`, sessão saudável
+- **entrega conferida por amostragem** de 18 alvos espalhados pela lista: 9 `Delivered`, 7 `Read`, 2 `Sent`, nenhum `Failed` — entre 10:45 e 11:46, os 6 grupos no intervalo de 10 min
+- a única falha de envio (`5511941272995`, a Diana) foi **recuperada pela retentativa** de 07/10: aparece no `errosAmostra` com `failed: 0`
+
+Base em crescimento: 543 → 543 → 544 alvos nos últimos dias.
+
+**Por que ele acha que parou, provavelmente:** ele não recebe mais. O número dele (`5521998088003`) saiu em 28/09 **a pedido dele**, e o número oficial (`552123427056`) saiu em 07/10. Conferido no job de hoje: os dois fora. Já estava avisado em 28/09 que receber o próprio devocional era, na prática, a confirmação de que o disparo saiu — e que isso ia embora com a mudança. Seis semanas depois, a memória disso se foi.
+
+**Lição:** tirar o próprio operador da lista tirou o único sinal que ele tinha. Quando a confirmação de um sistema é efeito colateral, remover o efeito colateral cega o operador — e ele volta como bug.
+
+#### 🔴 A bomba datada, achada no caminho
+
+`/api/admin/broadcasts` listava as faixas com **`limit: 200`**, e havia **170 no KV**. São 6 faixas por disparo (a base foi de 235 para 544 contatos) com TTL de 30 dias, ou seja ~180 em regime e subindo.
+
+A lista do KV é **alfabética**, e a data está no nome da chave. Ao passar de 200, o que voltaria eram as **200 mais antigas** — os disparos recentes desapareceriam do painel. **O sintoma seria exatamente "o devocional parou", aí de verdade**, em uns 5 dias.
+
+Corrigido: lista tudo paginando, agrupa pelo `messageId` lido do **próprio nome da chave** (sem ler valor nenhum), ordena por data e só então busca as faixas dos **12 disparos mais recentes** (`MAX_RUNS`). De passagem resolveu a lentidão: eram 170 leituras de KV em série, hoje são ~72 em paralelo.
+
+10 checagens, incluindo o cenário de 240 faixas, que é onde o código antigo escondia o disparo do dia.
+
+⚠️ **Padrão para procurar em outro lugar:** `limit` fixo em `KV.list()` com chave que cresce por dia. O `broadcast:sent:` (TTL 7d, 1/dia) e os legados `broadcast:progress:`/`broadcast:log:` (4 chaves) estão folgados, mas a regra vale: se a chave cresce com o tempo, o `limit` é uma data de validade.
+
 ## Regras de comportamento (system prompt do LLM)
 
 - Tom: **companheiro carinhoso, parceiro**, português BR contemporâneo, frases curtas

@@ -24,6 +24,13 @@ interface LaneStats extends BroadcastStats {
   cursor: number;
 }
 
+/**
+ * Quantos disparos o painel mostra. O painel lista os devocionais recentes;
+ * mais que isso é histórico, que ninguém rola — e cada disparo custa uma
+ * leitura de KV por faixa.
+ */
+const MAX_RUNS = 12;
+
 /** A run is only finished when every one of its lanes is. */
 function mergeLanes(lanes: LaneStats[]): BroadcastStats & { lanes: LaneStats[] } {
   const sorted = [...lanes].sort((a, b) => a.lane - b.lane);
@@ -60,20 +67,58 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   };
 
   // 1. Lane records (current format) — each run has one per lane, merged here
+  //
+  // ⚠️ O `limit: 200` daqui era uma bomba com data marcada, encontrada em
+  // 2026-11-09 com 170 faixas no KV. São 6 faixas por disparo (a base cresceu
+  // de 235 para 544 contatos) com TTL de 30 dias, ou seja ~180 em regime, e
+  // subindo. A lista do KV é alfabética e a data está no nome da chave, então
+  // ao passar de 200 o que vinha era as 200 MAIS ANTIGAS: os disparos recentes
+  // sumiriam do painel, e o sintoma seria exatamente "o devocional parou".
+  //
+  // Agora lista tudo paginando, agrupa pelo messageId lido do PRÓPRIO NOME da
+  // chave — sem ler valor nenhum — e só então busca as faixas dos disparos mais
+  // recentes. De passagem resolve a lentidão: eram 170 leituras de KV em série,
+  // hoje são ~60 em paralelo.
   {
-    const listed = await env.KV.list({ prefix: 'broadcast:lane:', limit: 200 });
-    const byRun = new Map<string, LaneStats[]>();
-    for (const k of listed.keys) {
-      const raw = await env.KV.get(k.name);
-      if (!raw) continue;
-      try {
-        const lane = JSON.parse(raw) as LaneStats;
-        if (!lane.messageId) continue;
-        byRun.set(lane.messageId, [...(byRun.get(lane.messageId) ?? []), lane]);
-      } catch { /* ignore */ }
+    const PREFIXO = 'broadcast:lane:';
+    const chaves: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await env.KV.list({ prefix: PREFIXO, cursor });
+      for (const k of page.keys) chaves.push(k.name);
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+
+    // `broadcast:lane:<messageId>:<faixa>` — o último trecho é o número da
+    // faixa, o resto é o messageId.
+    const porRun = new Map<string, string[]>();
+    for (const nome of chaves) {
+      const resto = nome.slice(PREFIXO.length);
+      const corte = resto.lastIndexOf(':');
+      if (corte <= 0) continue;
+      const messageId = resto.slice(0, corte);
+      porRun.set(messageId, [...(porRun.get(messageId) ?? []), nome]);
     }
-    for (const [messageId, lanes] of byRun) {
-      upsert(messageId, { progress: mergeLanes(lanes) });
+
+    // O messageId termina no timestamp do disparo, então ordenar por ele é
+    // ordenar por data. Formato inesperado cai para 0 e vai para o fim, em vez
+    // de bagunçar a ordem toda.
+    const carimbo = (messageId: string) => Number(messageId.split(':').pop()) || 0;
+    const recentes = [...porRun.entries()]
+      .sort((a, b) => carimbo(b[0]) - carimbo(a[0]) || b[0].localeCompare(a[0]))
+      .slice(0, MAX_RUNS);
+
+    for (const [messageId, nomes] of recentes) {
+      const brutos = await Promise.all(nomes.map((n) => env.KV.get(n)));
+      const lanes: LaneStats[] = [];
+      for (const raw of brutos) {
+        if (!raw) continue;
+        try {
+          const lane = JSON.parse(raw) as LaneStats;
+          if (lane.messageId) lanes.push(lane);
+        } catch { /* ignore */ }
+      }
+      if (lanes.length > 0) upsert(messageId, { progress: mergeLanes(lanes) });
     }
   }
 
