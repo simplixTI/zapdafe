@@ -462,7 +462,25 @@ Se não aparecer, a Uazapi não emite webhook para mensagem de aparelho conectad
 
 Base em crescimento: 543 → 543 → 544 alvos nos últimos dias.
 
-**Por que ele acha que parou, provavelmente:** ele não recebe mais. O número dele (`5521998088003`) saiu em 28/09 **a pedido dele**, e o número oficial (`552123427056`) saiu em 07/10. Conferido no job de hoje: os dois fora. Já estava avisado em 28/09 que receber o próprio devocional era, na prática, a confirmação de que o disparo saiu — e que isso ia embora com a mudança. Seis semanas depois, a memória disso se foi.
+#### 🔴 A causa real do relato: o painel dizia que o disparo tinha morrido
+
+Depois da primeira resposta, o cliente completou: *"falaram que um dia só saiu 91 mensagens"*. Isso mudou tudo.
+
+**91 é exatamente o tamanho do primeiro grupo.** 544 alvos ÷ 6 grupos = grupos de 91, e eles saem de 10 em 10 minutos — o disparo inteiro leva ~50 min. Os 29 disparos guardados no KV (TTL de 30 dias, de 11/10 a 09/11) **fecharam todos completos**, com 0 ou 1 falha. Nenhum dia teve 91 entregas.
+
+Mas o painel tinha `BROADCAST_STALL_MS = 3 * 60 * 1000`, com o comentário *"um chunk normal escreve progresso a cada ~15s"* — verdade no desenho **antigo**, de chunks encadeados. No desenho atual o registro fica parado **de propósito** entre grupos: 10 min de intervalo e o cron de 5 em 5, então o espaçamento real chega a 15 min (medido em 16/10: 13:12, 13:27, 13:42, 13:52, 14:02, 14:17).
+
+Ou seja: **a partir do terceiro minuto, todo disparo normal aparecia como "Parado" com "453 pessoa(s) não receberam" em vermelho.** Quem abriu o painel no meio leu exatamente isso.
+
+Corrigido:
+- `BROADCAST_STALL_MS` passou a ser `(intervalo + 15) min`, com `BROADCAST_GROUP_INTERVAL_MIN` espelhando o `GROUP_INTERVAL_MIN` do Worker
+- em andamento, a nota virou *"Grupo 2 de 6 saindo agora. Os grupos vão de 10 em 10 minutos, então faltam cerca de 40 minutos"* — em vez de despejar o cursor de cada faixa
+- o subtítulo diz o estado antes do número: *"Último: em andamento, 91 de 544 até agora"*
+- na tela, "faixa" virou "grupo", que é o que quem lê entende
+
+⚠️ **A lição, e ela vale para o projeto todo:** um limiar de tempo calibrado para um desenho sobrevive à troca do desenho e passa a mentir. Este dizia "morreu" sobre um sistema saudável por 47 dos 50 minutos de cada disparo. **Quando o ritmo do Worker mudar, `BROADCAST_STALL_MS` tem que mudar junto** — por isso o espelho da constante e o comentário apontando o arquivo.
+
+**Por que ele também achou que parou:** ele não recebe mais. O número dele (`5521998088003`) saiu em 28/09 **a pedido dele**, e o número oficial (`552123427056`) saiu em 07/10. Conferido no job de hoje: os dois fora. Já estava avisado em 28/09 que receber o próprio devocional era, na prática, a confirmação de que o disparo saiu — e que isso ia embora com a mudança. Seis semanas depois, a memória disso se foi.
 
 **Lição:** tirar o próprio operador da lista tirou o único sinal que ele tinha. Quando a confirmação de um sistema é efeito colateral, remover o efeito colateral cega o operador — e ele volta como bug.
 

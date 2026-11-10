@@ -1910,9 +1910,24 @@ import Base from '../../layouts/Base.astro';
       dedupSeen: boolean;
     }
 
-    // Sem atualização por este tempo e sem ter terminado = a corrida morreu no meio.
-    // Um chunk normal escreve progresso a cada ~15s.
-    const BROADCAST_STALL_MS = 3 * 60 * 1000;
+    // Minutos entre um grupo e o seguinte. Espelha GROUP_INTERVAL_MIN no
+    // worker/src/index.ts — mudou lá, muda aqui.
+    const BROADCAST_GROUP_INTERVAL_MIN = 10;
+
+    // Sem atualização por este tempo e sem ter terminado = o disparo morreu no
+    // meio.
+    //
+    // ⚠️ Era 3 minutos, herdado do desenho antigo de chunks encadeados, que
+    // escreviam progresso a cada ~15s. No desenho atual o registro fica
+    // PARADO de propósito entre um grupo e outro: são 10 minutos de intervalo
+    // e o cron acorda de 5 em 5, então o espaçamento real entre dois grupos
+    // chega a 15 minutos (medido: 13:12, 13:27, 13:42, 13:52, 14:02, 14:17).
+    //
+    // Com 3 minutos, TODO disparo normal aparecia como "Parado" com "453
+    // pessoa(s) não receberam" em vermelho a partir do terceiro minuto. Foi
+    // assim que um disparo completo de 544 virou o relato "um dia só saiu 91
+    // mensagens" — 91 é exatamente o tamanho do primeiro grupo.
+    const BROADCAST_STALL_MS = (BROADCAST_GROUP_INTERVAL_MIN + 15) * 60 * 1000;
 
     function broadcastState(p: NonNullable<BroadcastItem['progress']>): 'done' | 'running' | 'stalled' {
       if (p.finishedAtISO) return 'done';
@@ -1920,13 +1935,28 @@ import Base from '../../layouts/Base.astro';
       return since < BROADCAST_STALL_MS ? 'running' : 'stalled';
     }
 
-    function laneNote(lanes: BroadcastLane[]): string {
-      const paradas = lanes.filter(l => !l.finishedAtISO);
-      if (paradas.length === 0) return `${lanes.length} faixas, todas concluídas.`;
-      const detalhe = paradas
-        .map(l => `faixa ${l.lane}: ${l.dispatched} de ${l.total} (cursor ${l.cursor})`)
+    // "faixa" é o nome interno (lane). Na tela é "grupo", que é o que a pessoa
+    // que lê o painel entende.
+    function laneNote(lanes: BroadcastLane[], state: 'done' | 'running' | 'stalled'): string {
+      const feitas = lanes.filter(l => l.finishedAtISO).length;
+      if (feitas === lanes.length) return `${lanes.length} grupos, todos concluídos.`;
+
+      // Em andamento, o que importa é "vai sair o resto", não o cursor de cada
+      // grupo. Sem isso um disparo normal, lido no meio, parece um disparo
+      // falhado — foi o que aconteceu com o relato dos "91".
+      if (state === 'running') {
+        const restam = lanes.length - feitas;
+        const minutos = restam * BROADCAST_GROUP_INTERVAL_MIN;
+        return `Grupo ${feitas + 1} de ${lanes.length} saindo agora. ` +
+          `Os grupos vão de ${BROADCAST_GROUP_INTERVAL_MIN} em ${BROADCAST_GROUP_INTERVAL_MIN} minutos, ` +
+          `então faltam cerca de ${minutos} minutos para terminar.`;
+      }
+
+      const detalhe = lanes
+        .filter(l => !l.finishedAtISO)
+        .map(l => `grupo ${l.lane}: ${l.dispatched} de ${l.total}`)
         .join('; ');
-      return `${lanes.length} faixas — ${detalhe}.`;
+      return `${lanes.length} grupos — ${detalhe}.`;
     }
 
     async function loadBroadcasts() {
@@ -1945,7 +1975,14 @@ import Base from '../../layouts/Base.astro';
       }
 
       const ultimo = items[0]!.progress!;
-      sub.textContent = `Último: ${ultimo.dispatched} de ${ultimo.total} entregues`;
+      // Em andamento, dizer só "91 de 544 entregues" lê como falha. O estado
+      // vem na frente do número.
+      const estadoUltimo = broadcastState(ultimo);
+      sub.textContent = estadoUltimo === 'done'
+        ? `Último: ${ultimo.dispatched} de ${ultimo.total} entregues`
+        : estadoUltimo === 'running'
+        ? `Último: em andamento, ${ultimo.dispatched} de ${ultimo.total} até agora`
+        : `Último: parado em ${ultimo.dispatched} de ${ultimo.total}`;
 
       for (const item of items) {
         const p = item.progress!;
@@ -1955,7 +1992,7 @@ import Base from '../../layouts/Base.astro';
         const faltam = p.total - p.dispatched - p.failed;
 
         const notas: string[] = [];
-        if (p.lanes?.length) notas.push(laneNote(p.lanes));
+        if (p.lanes?.length) notas.push(laneNote(p.lanes, state));
         if (p.failed > 0) {
           // Mostrar o motivo junto do número: "12 falharam" sozinho não dá
           // nenhuma pista de onde olhar.
