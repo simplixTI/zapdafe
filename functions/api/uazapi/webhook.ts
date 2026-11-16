@@ -20,6 +20,7 @@ import {
 import { getPlaylistTracks, formatPlaylistForPrompt, type Track } from '../../_shared/spotify';
 import { runBroadcast, markActive } from '../../_shared/broadcast';
 import { transcribeAudio } from '../../_shared/transcribe';
+import { registrarConexao, registrarEntrega } from '../../_shared/eventos';
 import {
   isTeamPhone, parseHandoffCommand, pausarConversa, retomarConversa,
   conversaPausada, looksLikeHumanTakeover, PAUSE_HOURS, type HandoffCommand,
@@ -586,6 +587,31 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     payload = (await request.json()) as UazapiWebhookPayload;
   } catch {
     return new Response('bad json', { status: 400 });
+  }
+
+  // Eventos que não são mensagem de contato. Assinados em 2026-11-16 — ver
+  // eventos.ts para o porquê de cada um. Vêm antes de qualquer coisa: o resto
+  // deste handler assume que o payload é uma mensagem.
+  const evento = String(payload.event ?? '').toLowerCase();
+  if (evento.includes('connection')) {
+    context.waitUntil(
+      registrarConexao(env, payload)
+        .then(r => { console.log(`[webhook] ${r}`); })
+        .catch(err => { console.error('connection:', err instanceof Error ? err.message : String(err)); }),
+    );
+    return new Response(JSON.stringify({ ok: true, kind: 'connection' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  if (evento.includes('update')) {
+    context.waitUntil(
+      registrarEntrega(env, payload).catch(err => {
+        console.error('messages_update:', err instanceof Error ? err.message : String(err));
+      }),
+    );
+    return new Response(JSON.stringify({ ok: true, kind: 'messages_update' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   const m = extractMessage(payload);
