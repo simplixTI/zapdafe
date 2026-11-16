@@ -29,6 +29,16 @@ npx wrangler kv key list --namespace-id $NS --remote --prefix "active:"         
 2. O número `+55 21 95101-4062`, usado nos testes de 23/09, **vira alvo do devocional a partir de 24/09**. Se não for para receber todo dia, marcar opt-out.
 3. ✅ **Resolvido em 2026-10-03** — opt-out do `553189077770` cadastrado e as entradas mortas removidas. Ver o incidente de 02/10 abaixo.
 
+## 📋 Lista de inativos — revisar em 2026-12-16
+
+`inativos:list` no KV tem **12 contatos** que saíram dos alvos do devocional em 16/11 porque as mensagens **nunca chegavam ao aparelho** (status `Server Whatsapp`). Código em `functions/_shared/inativos.ts`.
+
+⚠️ **Não é opt-out, e a separação é deliberada.** `optouts:list` é o registro de quem PEDIU para sair, e o cliente olha para ela. Decisão do sistema misturada ali corrompe esse significado — e o ciclo de vida é outro: opt-out nunca volta, inativo volta no dia em que as mensagens começarem a chegar.
+
+**O limite da medição, que é por isso que existe data de revisão:** a Uazapi guarda ~8 dias de histórico, então foram observados 4 ou 5 devocionais. **Um celular desligado por uma semana parece igual a um bloqueio.** Em 16/12, refazer a medição (script no final deste arquivo) e devolver à lista quem voltar a receber.
+
+Os 12: `5516991799372` `558494491287` `554699405705` `557791223312` `554888724348` `5584921800755` `5521983398699` `5521999990002` `5521999990001` `5511992054868` `553192777198` `554388469296`
+
 ## Visão geral
 
 Zapdafé é um companheiro cristão via WhatsApp: recebe mensagens, responde com tom carinhoso (não recita versos secos, conversa e usa a Bíblia como conforto), sugere música da playlist Spotify, e o cliente (`+55 21 99808-8003`) pode disparar devocional manual pra todos os contatos ativos.

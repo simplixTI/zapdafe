@@ -10,6 +10,7 @@
 
 import type { Env } from './auth';
 import { loadOptOutSet, phoneVariants } from './optouts';
+import { loadInativoSet } from './inativos';
 
 interface ArchivedContact {
   name: string;
@@ -138,9 +139,10 @@ async function enqueue(env: Env, text: string, messageId: string): Promise<void>
   if (await env.KV.get(dedupKey(messageId))) return;
   await env.KV.put(dedupKey(messageId), '1', { expirationTtl: TTL_7D });
 
-  const [contactsRaw, optouts, activeChatIds] = await Promise.all([
+  const [contactsRaw, optouts, inativos, activeChatIds] = await Promise.all([
     env.KV.get('arch:contacts'),
     loadOptOutSet(env),
+    loadInativoSet(env),
     listActiveChatIds(env),
   ]);
   const contacts = contactsRaw ? (JSON.parse(contactsRaw) as Record<string, ArchivedContact>) : {};
@@ -167,6 +169,10 @@ async function enqueue(env: Env, text: string, messageId: string): Promise<void>
     const phone = chatid.split('@')[0];
     if (gatilho.has(phone)) return;
     if (optouts.has(phone)) return;
+    // Quem não está recebendo sai da lista — ver inativos.ts. Lista separada
+    // do opt-out de propósito: esta é decisão do sistema, aquela é pedido da
+    // pessoa.
+    if (inativos.has(phone)) return;
     seen.add(chatid);
     targets.push(chatid);
   };
