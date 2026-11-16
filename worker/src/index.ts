@@ -59,7 +59,11 @@ const BATCH_SIZE = 10;
 // projetado isso. Ao juntar tudo numa invocação só, o envio ficou contínuo e
 // a Uazapi passou a recusar: 86 de 235 falharam em 2026-09-21. O freio agora
 // é explícito.
-const BATCH_PAUSE_MS = 6000;
+// Subiu de 6s para 12s em 2026-11-16. Nao foi para resolver a queda daquela
+// semana (que foi deslogue de sessao, nao restricao por volume), e sim
+// prudencia: a base foi de 235 para 553 contatos, e volume alto para gente que
+// nunca responde e o perfil que o WhatsApp penaliza.
+const BATCH_PAUSE_MS = 12000;
 // Teto de envios por invocação. Dois limites em jogo:
 //   - chamadas externas: 50 no plano gratuito (foi o que quebrou o disparo de
 //     2026-09-21, com exatamente os 50 primeiros de cada grupo chegando),
@@ -78,7 +82,61 @@ const MAX_ERROS_AMOSTRA = 5;
 // der muito errado.
 const MAX_RETENTATIVAS = 20;
 // Espaçamento entre grupos, pedido do cliente — evita parecer disparo em massa.
-const GROUP_INTERVAL_MIN = 10;
+// Subiu de 10 para 15 em 2026-11-16, mesma razao do BATCH_PAUSE_MS.
+// ⚠️ Mudou aqui, muda o BROADCAST_GROUP_INTERVAL_MIN em
+// src/pages/admin/index.astro — e com ele o limiar que o painel usa para
+// dizer "Parado". Em 09/11 o painel passou semanas chamando disparo saudavel
+// de morto por causa dessa constante dessincronizada.
+const GROUP_INTERVAL_MIN = 15;
+
+// Por quanto tempo vale insistir num disparo travado por sessao caida. Depois
+// disso o devocional do dia perdeu a hora: mandar o texto de domingo na
+// segunda-feira e pior que nao mandar.
+const HORAS_LIMITE_DO_DISPARO = 6;
+
+/**
+ * True quando o erro é da SESSÃO do WhatsApp, não daquele contato.
+ *
+ * A diferença decide tudo: falha de contato (um 403 porque aquela pessoa
+ * bloqueou) é para contar e seguir; falha de sessão significa que NENHUM envio
+ * vai funcionar, e insistir só queima a lista inteira.
+ *
+ * Em 2026-11-15 a sessão caiu às 14:42 (deslogada de outro aparelho) no meio do
+ * grupo 1. Os grupos 2 a 5 tentaram 361 envios com a sessão morta, todos
+ * falharam um por um, e o disparo se declarou "Concluído" — 418 pessoas sem
+ * receber, fila limpa, nada para retomar.
+ */
+function ehFalhaDeSessao(msg: string): boolean {
+  const m = msg.toLowerCase();
+  // O 403 vem PRIMEIRO, e isso não é detalhe: ele é recusa daquele contato
+  // (a pessoa bloqueou o número), e já apareceu em produção dentro de resposta
+  // 500 **e** 503. Sem esta linha na frente, a heurística de "503 = sessão"
+  // leria um bloqueio individual como queda de sessão e pararia o disparo
+  // inteiro por causa de uma pessoa. Achado pelo próprio teste.
+  if (m.includes('whatsapp server error 403')) return false;
+  return (
+    m.includes('disconnected') ||
+    m.includes('not reconnecting') ||
+    m.includes("store doesn't contain a device jid") ||
+    m.includes('/send/text 503')
+  );
+}
+
+/** Pergunta à Uazapi se a sessão está de pé. Uma chamada, antes de queimar envios. */
+async function sessaoConectada(env: Env): Promise<boolean> {
+  try {
+    const res = await fetch(`${env.AI_UAZAPI_BASE}/instance/status`, {
+      headers: { token: env.AI_UAZAPI_TOKEN },
+    });
+    if (!res.ok) return false;
+    const json = (await res.json()) as { instance?: { status?: string }; status?: string };
+    const status = json.instance?.status ?? json.status ?? '';
+    return status === 'connected';
+  } catch {
+    // Não dá para afirmar que caiu: na dúvida segue e deixa o envio decidir.
+    return true;
+  }
+}
 
 const QUEUE_KEY = 'broadcast:queue';
 const jobKey = (id: string) => `broadcast:job:${id}`;
@@ -105,11 +163,17 @@ async function saveGroup(env: Env, g: GroupStats): Promise<void> {
 }
 
 /**
- * Envia o que falta de um grupo, salvando progresso a cada lote. Devolve
- * `true` se o grupo terminou; `false` se parou no teto de envios da invocação
- * e precisa continuar no próximo tick.
+ * Por que o grupo parou:
+ *   'concluido' — mandou tudo
+ *   'teto'      — bateu no teto de envios da invocação, retoma no próximo tick
+ *   'sessao'    — a sessão do WhatsApp caiu; NÃO avançou o cursor
  */
-async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promise<boolean> {
+type ParadaDoGrupo = 'concluido' | 'teto' | 'sessao';
+
+/**
+ * Envia o que falta de um grupo, salvando progresso a cada lote.
+ */
+async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promise<ParadaDoGrupo> {
   const uazapi = aiEnv(env);
 
   let primeiroLote = true;
@@ -117,10 +181,17 @@ async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promis
   // Quem falhou nesta invocação, para uma segunda tentativa no fim do grupo.
   const falhas: string[] = [];
 
+  // Uma pergunta antes de queimar o primeiro envio: se a sessão já está fora,
+  // nem começa.
+  if (!(await sessaoConectada(env))) {
+    console.error(`[devocional] grupo ${group.lane}: sessão do WhatsApp fora do ar, não vou tentar`);
+    return 'sessao';
+  }
+
   while (group.cursor < group.end) {
     if (enviadosNestaInvocacao + BATCH_SIZE > MAX_ENVIOS_POR_INVOCACAO) {
       console.log(`[devocional] grupo ${group.lane}: teto da invocação, continua no próximo tick`);
-      return false;
+      return 'teto';
     }
     // Freio entre lotes — ver BATCH_PAUSE_MS
     if (!primeiroLote) await new Promise((r) => setTimeout(r, BATCH_PAUSE_MS));
@@ -129,16 +200,24 @@ async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promis
     const batchEnd = Math.min(group.cursor + BATCH_SIZE, group.end);
     const batch = job.targets.slice(group.cursor, batchEnd);
 
+    let falhasDoLote = 0;
+    let sessaoCaiu = false;
+
     await Promise.all(
       batch.map(async (chatid) => {
         try {
           await sendText(uazapi, chatid, job.text);
           group.dispatched += 1;
         } catch (err) {
-          group.failed += 1;
-          falhas.push(chatid);
           const msg = err instanceof Error ? err.message : String(err);
           console.error(`envio para ${chatid} falhou:`, msg);
+          if (ehFalhaDeSessao(msg)) {
+            sessaoCaiu = true;
+            falhasDoLote += 1;
+            return; // não conta como falha do contato: ninguém tentou de verdade
+          }
+          group.failed += 1;
+          falhas.push(chatid);
           // Com o número junto: em 2026-09-22 uma falha sozinha custou uma
           // varredura no histórico da Uazapi só para descobrir de quem era.
           const amostra = (group.errosAmostra ??= []);
@@ -148,6 +227,19 @@ async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promis
         group.lastChatid = chatid;
       }),
     );
+
+    // Sessão caiu no meio do lote: para aqui SEM avançar o cursor, para o
+    // próximo tick retomar exatamente estes contatos. O que já saiu neste lote
+    // pode duplicar — receber duas vezes é muito melhor que não receber.
+    if (sessaoCaiu) {
+      console.error(
+        `[devocional] grupo ${group.lane}: sessão caiu no cursor ${group.cursor} ` +
+        `(${falhasDoLote} de ${batch.length} do lote). Parando sem avançar.`,
+      );
+      group.updatedAtISO = new Date().toISOString();
+      await saveGroup(env, group);
+      return 'sessao';
+    }
 
     // Progresso salvo lote a lote: se esta invocação morrer, o próximo tick
     // retoma exatamente daqui em vez de reenviar para quem já recebeu.
@@ -190,7 +282,7 @@ async function sendGroup(env: Env, job: BroadcastJob, group: GroupStats): Promis
 
   group.finishedAtISO = new Date().toISOString();
   await saveGroup(env, group);
-  return true;
+  return 'concluido';
 }
 
 export async function runDue(env: Env, now = Date.now()): Promise<string> {
@@ -222,8 +314,23 @@ export async function runDue(env: Env, now = Date.now()): Promise<string> {
     return `disparo ${queue.messageId} concluído`;
   }
 
-  const terminou = await sendGroup(env, job, pending);
-  if (!terminou) {
+  const parada = await sendGroup(env, job, pending);
+
+  if (parada === 'sessao') {
+    // A fila fica como está, então o próximo tick (5 min) tenta de novo o
+    // mesmo grupo, do mesmo cursor. Uma queda de 10 minutos passa a custar 10
+    // minutos, e não o disparo inteiro.
+    const idadeH = (now - Date.parse(queue.createdAtISO)) / 3_600_000;
+    if (idadeH > HORAS_LIMITE_DO_DISPARO) {
+      await env.KV.delete(QUEUE_KEY);
+      return `disparo ${queue.messageId} abandonado: sessão fora do ar há ${idadeH.toFixed(1)}h, ` +
+        `passou do limite de ${HORAS_LIMITE_DO_DISPARO}h`;
+    }
+    return `grupo ${pending.lane}: sessão do WhatsApp fora do ar, retomo no próximo tick ` +
+      `(disparo com ${idadeH.toFixed(1)}h de vida)`;
+  }
+
+  if (parada === 'teto') {
     // Grupo interrompido no teto da invocação: não mexe no relógio da fila,
     // para o próximo tick retomar este mesmo grupo de onde parou.
     return `grupo ${pending.lane}: ${pending.dispatched}/${pending.total} (continua no próximo tick)`;
