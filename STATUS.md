@@ -29,6 +29,30 @@ npx wrangler kv key list --namespace-id $NS --remote --prefix "active:"         
 2. O número `+55 21 95101-4062`, usado nos testes de 23/09, **vira alvo do devocional a partir de 24/09**. Se não for para receber todo dia, marcar opt-out.
 3. ✅ **Resolvido em 2026-10-03** — opt-out do `553189077770` cadastrado e as entradas mortas removidas. Ver o incidente de 02/10 abaixo.
 
+## 🔔 Eventos da Uazapi assinados em 2026-11-16 — VERIFICAR
+
+O webhook assinava só `messages`. Agora assina **`messages`, `messages_update` e `connection`**, no mesmo destino `r1e0d70c0ac34f6` (sem duplicar), com URL, secret e `excludeMessages` preservados.
+
+Para mexer nisso: `POST /webhook` com `{"action":"update","id":"<id do GET /webhook>", ...}`. Sem o `action` a Uazapi responde `{"error":"Invalid action"}` e **não altera nada** — foi o que aconteceu na primeira tentativa.
+
+**Por que:**
+- `connection` — a sessão caiu em 15/11 às 14:42 e ficou **24 horas muda para todo mundo** sem ninguém saber. Agora grava `sessao:estado` e um histórico em `sessao:quedas` (início, fim, motivo). Não tenta avisar ninguém: avisar por WhatsApp que o WhatsApp caiu não funciona. O que isso resolve é o sistema **saber**.
+- `messages_update` — o arquivo acumula QUANTIDADE (`msgsOut` conta o que saiu daqui), nunca entrega. Era por isso que a lista de inativos teve que se basear na janela de ~8 dias da Uazapi. Agora grava `entrega:<telefone>` com a data da última entrega real (só `Delivered` e `Read`; "Sent" só prova que a Uazapi aceitou).
+
+⚠️ **NÃO VERIFICADO.** Assinado em 16/11 ~20:45 UTC; nenhum evento tinha chegado ainda, porque eles só disparam quando algo acontece. Conferir com:
+```bash
+NS=71f423871ba94149a3bb8f67b4af9642
+npx wrangler kv key list --namespace-id $NS --remote --prefix "debug:evento:"   # amostra crua do payload
+npx wrangler kv key list --namespace-id $NS --remote --prefix "entrega:"        # entregas registradas
+npx wrangler kv key get  --namespace-id $NS --remote "sessao:estado"
+```
+
+🔴 **O risco concreto a vigiar:** `excludeMessages` tem `wasSentByApi`, e o devocional **é** enviado por API. Se esse filtro valer também para `messages_update`, a Uazapi vai engolir exatamente os eventos que interessam, e `entrega:` ficará vazio para sempre.
+
+**Como saber:** depois do próximo devocional (531 alvos), `entrega:` tem que ter centenas de chaves. Se continuar em zero, é o filtro. **A correção seria tirar `wasSentByApi` do `excludeMessages`** — seguro hoje, porque o webhook já ignora mensagem própria (`fromMe`) e a frase de passagem de atendimento exige `!wasSentByApi`, então mensagem de API nunca dispara a pausa. Mas aí o webhook passa a receber as ~531 do disparo como evento também, e isso precisa ser medido antes.
+
+O formato exato dos payloads não está na documentação pública, só os nomes dos eventos. Por isso `eventos.ts` lê de forma defensiva, por vários caminhos, e guarda a primeira amostra crua de cada tipo em `debug:evento:*` (TTL 2 dias). Com a amostra em mãos, dá para apertar a leitura.
+
 ## 📋 Lista de inativos — revisar em 2026-12-16
 
 `inativos:list` no KV tem **12 contatos** que saíram dos alvos do devocional em 16/11 porque as mensagens **nunca chegavam ao aparelho** (status `Server Whatsapp`). Código em `functions/_shared/inativos.ts`.
