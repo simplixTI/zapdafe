@@ -65,6 +65,50 @@ async function guardarAmostra(env: Env, tipo: string, payload: unknown): Promise
   await env.KV.put(chave, JSON.stringify(payload).slice(0, 8000), { expirationTtl: TTL_2D });
 }
 
+const TTL_7D = 60 * 60 * 24 * 7;
+
+/**
+ * Sonda de formato, para QUALQUER payload que não seja uma mensagem comum.
+ *
+ * ⚠️ Esta função existe por causa de um erro meu em 2026-11-16: eu assinei os
+ * eventos `connection` e `messages_update` e pus a captura da amostra DENTRO
+ * dos tratadores. Como a condição que eu não tinha certeza (`payload.event`)
+ * nunca casou, nada foi gravado — enterrei a sonda atrás exatamente da coisa
+ * que eu queria medir. Em 23/11 a sessão caiu, voltou, e um devocional de 531
+ * mensagens passou, e eu tinha zero amostras para olhar.
+ *
+ * Agora a captura vem ANTES de qualquer decisão. A chave é a assinatura das
+ * chaves de topo do payload, então ela se deduplica por FORMATO e é
+ * auto-explicativa: ver `debug:payload:event,instance` no KV já conta de onde
+ * veio. Também guarda cabeçalhos selecionados, porque o tipo do evento pode
+ * estar vindo por header em vez de corpo.
+ *
+ * A URL é guardada sem query string: o secret do webhook vive nela.
+ */
+export async function guardarFormatoDesconhecido(
+  env: Env,
+  payload: Record<string, unknown>,
+  req: Request,
+): Promise<void> {
+  const assinatura = (Object.keys(payload).sort().join(',') || 'sem-chaves').slice(0, 120);
+  const chave = `debug:payload:${assinatura}`;
+  if (await env.KV.get(chave)) return;
+
+  const cabecalhos: Record<string, string> = {};
+  for (const nome of ['content-type', 'user-agent', 'x-event', 'x-event-type', 'x-webhook-event']) {
+    const v = req.headers.get(nome);
+    if (v) cabecalhos[nome] = v.slice(0, 120);
+  }
+
+  const amostra = {
+    visto: new Date().toISOString(),
+    caminho: new URL(req.url).pathname,
+    cabecalhos,
+    payload,
+  };
+  await env.KV.put(chave, JSON.stringify(amostra).slice(0, 8000), { expirationTtl: TTL_7D });
+}
+
 /**
  * Evento `connection`: a sessão do WhatsApp caiu ou voltou.
  *

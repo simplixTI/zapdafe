@@ -20,7 +20,9 @@ import {
 import { getPlaylistTracks, formatPlaylistForPrompt, type Track } from '../../_shared/spotify';
 import { runBroadcast, markActive } from '../../_shared/broadcast';
 import { transcribeAudio } from '../../_shared/transcribe';
-import { registrarConexao, registrarEntrega } from '../../_shared/eventos';
+import {
+  registrarConexao, registrarEntrega, guardarFormatoDesconhecido,
+} from '../../_shared/eventos';
 import {
   isTeamPhone, parseHandoffCommand, pausarConversa, retomarConversa,
   conversaPausada, looksLikeHumanTakeover, PAUSE_HOURS, type HandoffCommand,
@@ -593,6 +595,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   // eventos.ts para o porquê de cada um. Vêm antes de qualquer coisa: o resto
   // deste handler assume que o payload é uma mensagem.
   const evento = String(payload.event ?? '').toLowerCase();
+
+  // Sonda de formato, ANTES de qualquer decisão. Em 23/11 a sessão caiu,
+  // voltou, e um devocional inteiro passou sem que uma única amostra fosse
+  // gravada — porque a captura antiga morava dentro dos tratadores, atrás da
+  // condição que eu justamente não tinha certeza. Deduplicada por formato, com
+  // TTL de 7 dias; não cresce.
+  if (evento !== 'messages') {
+    context.waitUntil(
+      guardarFormatoDesconhecido(env, payload as Record<string, unknown>, request).catch(err => {
+        console.error('sonda de formato:', err instanceof Error ? err.message : String(err));
+      }),
+    );
+  }
   if (evento.includes('connection')) {
     context.waitUntil(
       registrarConexao(env, payload)
