@@ -60,7 +60,15 @@ interface UazapiWebhookMessage {
 }
 
 interface UazapiWebhookPayload {
-  event?: string;
+  /** Tipo do evento: "messages", "messages_update" ou "connection". */
+  EventType?: string;
+  /**
+   * ⚠️ NÃO é o tipo do evento. Em `messages_update` e `connection` a Uazapi põe
+   * aqui o OBJETO do evento; em mensagem comum a chave não existe. Quem decide
+   * o ramo é o `EventType`. Tipado como `unknown` de propósito, para o
+   * `String(payload.event)` de 16/11 não voltar por distração.
+   */
+  event?: unknown;
   message?: UazapiWebhookMessage;
   data?: UazapiWebhookMessage;
   [k: string]: unknown;
@@ -594,7 +602,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   // Eventos que não são mensagem de contato. Assinados em 2026-11-16 — ver
   // eventos.ts para o porquê de cada um. Vêm antes de qualquer coisa: o resto
   // deste handler assume que o payload é uma mensagem.
-  const evento = String(payload.event ?? '').toLowerCase();
+  //
+  // ⚠️ O campo é `EventType`, NÃO `event`. Confirmado em 2026-11-25 com as três
+  // amostras reais que a sonda capturou: em `messages_update` e `connection` o
+  // `event` existe mas é o OBJETO do payload, então `String(payload.event)`
+  // dava "[object object]" e nenhum `includes` casava; em mensagem comum a
+  // chave `event` nem existe. Resultado: de 16/11 a 25/11 os dois eventos
+  // chegaram certinho e foram descartados em silêncio — e a queda de 24/11 às
+  // 14:02, no meio do devocional, não ficou registrada em lugar nenhum.
+  // O `payload.event` fica como segunda opção só para o caso de a Uazapi
+  // mudar de volta; só vale quando é string.
+  const eventoBruto = payload.EventType ?? (typeof payload.event === 'string' ? payload.event : '');
+  const evento = String(eventoBruto ?? '').toLowerCase();
 
   // Sonda de formato, ANTES de qualquer decisão. Em 23/11 a sessão caiu,
   // voltou, e um devocional inteiro passou sem que uma única amostra fosse

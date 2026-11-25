@@ -322,6 +322,16 @@ export async function runDue(env: Env, now = Date.now()): Promise<string> {
     // minutos, e não o disparo inteiro.
     const idadeH = (now - Date.parse(queue.createdAtISO)) / 3_600_000;
     if (idadeH > HORAS_LIMITE_DO_DISPARO) {
+      // Antes de 2026-11-25 o abandono era MUDO: apagava a fila e ia embora.
+      // As faixas ficavam para sempre com `finishedAtISO: null`, idênticas a um
+      // disparo ainda em andamento, e a conta de quem ficou sem receber só
+      // existia se alguém somasse os cursores à mão no KV — foi o que eu tive
+      // de fazer em 17/11 (393 pessoas) e em 24/11 (409). Três quedas e nenhum
+      // registro do prejuízo.
+      //
+      // Agora o abandono deixa recibo. É a mesma lição do painel em 09/11: o
+      // que o sistema não grava, o operador descobre tarde, por reclamação.
+      await registrarAbandono(env, queue, idadeH);
       await env.KV.delete(QUEUE_KEY);
       return `disparo ${queue.messageId} abandonado: sessão fora do ar há ${idadeH.toFixed(1)}h, ` +
         `passou do limite de ${HORAS_LIMITE_DO_DISPARO}h`;
@@ -348,6 +358,52 @@ export async function runDue(env: Env, now = Date.now()): Promise<string> {
   }
 
   return `grupo ${pending.lane}: ${pending.dispatched} enviados, ${pending.failed} falhas`;
+}
+
+/** Recibo de um disparo abandonado: quantos ficaram sem receber, e por quê. */
+export interface Abandono {
+  messageId: string;
+  abandonadoEmISO: string;
+  idadeHoras: number;
+  enviados: number;
+  total: number;
+  faltantes: number;
+  motivo: string;
+}
+
+/**
+ * Grava o recibo do abandono. Soma os cursores das faixas na hora — são 6
+ * leituras de KV, e só acontecem quando um disparo morre, o que é raro.
+ *
+ * Não tenta reenviar nada: o limite de 6h existe porque devocional de ontem
+ * chegando hoje é pior do que não chegar. O que faltava era o número ficar
+ * registrado em vez de precisar de arqueologia.
+ */
+async function registrarAbandono(env: Env, queue: Queue, idadeH: number): Promise<void> {
+  let enviados = 0;
+  let total = 0;
+  for (let lane = 0; lane < queue.groups; lane++) {
+    const g = await readJson<GroupStats>(env, laneKey(queue.messageId, lane));
+    if (!g) continue;
+    enviados += g.dispatched;
+    total += g.total;
+  }
+  const recibo: Abandono = {
+    messageId: queue.messageId,
+    abandonadoEmISO: new Date().toISOString(),
+    idadeHoras: Number(idadeH.toFixed(1)),
+    enviados,
+    total,
+    faltantes: Math.max(0, total - enviados),
+    motivo: 'sessao do WhatsApp fora do ar',
+  };
+  await env.KV.put(`broadcast:abandonado:${queue.messageId}`, JSON.stringify(recibo), {
+    expirationTtl: TTL_30D,
+  });
+  console.error(
+    `[broadcast] abandonado ${queue.messageId}: ${recibo.faltantes} de ${total} sem receber ` +
+    `(sessao fora ha ${recibo.idadeHoras}h)`,
+  );
 }
 
 /**

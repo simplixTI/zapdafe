@@ -29,7 +29,52 @@ npx wrangler kv key list --namespace-id $NS --remote --prefix "active:"         
 2. O número `+55 21 95101-4062`, usado nos testes de 23/09, **vira alvo do devocional a partir de 24/09**. Se não for para receber todo dia, marcar opt-out.
 3. ✅ **Resolvido em 2026-10-03** — opt-out do `553189077770` cadastrado e as entradas mortas removidas. Ver o incidente de 02/10 abaixo.
 
-## 🔔 Eventos da Uazapi assinados em 2026-11-16 — VERIFICAR
+## 🔴 As três quedas de sessão são DENTRO do devocional — 2026-11-25
+
+Três quedas, três disparos cortados no mesmo ponto. Não é azar:
+
+| data | hora da queda | grupo | enviados | sem receber |
+|---|---|---|---|---|
+| 15/11 | 14:42 | 1 | 113 de 531 | 418 |
+| 17/11 | 11:42 | 1 | 138 de 531 | 393 |
+| 24/11 | 14:02 | 1 | 122 de 531 | 409 |
+
+Sempre no **grupo 1** (o segundo), sempre ~20 min depois do início, sempre por volta da mensagem **~120**. O motivo que a Uazapi dá é sempre o mesmo: `401: logged out from another device with recentMessage`.
+
+**Duas causas possíveis, e elas pedem correções opostas:**
+
+1. **O WhatsApp derrubando o dispositivo vinculado por volume.** Ritmo medido no grupo 0 de 24/11: 89 envios em 6 min (~15/min). Se for isso, a correção é no ritmo (`BATCH_PAUSE_MS`, `GROUP_INTERVAL_MIN`), não em retomada.
+2. **Deslogue real.** O WhatsApp aceita 4 dispositivos vinculados além do celular, e a Uazapi ocupa um. Vinculando um 5º, o mais antigo é expulso — e apareceria exatamente com esta mensagem. **Conferir com o cliente: quantos aparelhos estão em _Dispositivos conectados_.**
+
+O relógio pesa para (1): despejo por vinculação aconteceria em hora aleatória, não três vezes no mesmo ponto do disparo. O texto do erro pesa para (2). **Não decidir no chute** — com `sessao:quedas` gravando (ver abaixo), a resposta vem do dado: se só cair durante disparo, é volume; se cair em horário solto, é vinculação.
+
+⚠️ **Não mexer em `BATCH_PAUSE_MS` nem em `GROUP_INTERVAL_MIN` antes disso.** Mudar o ritmo agora destrói a única medição que separa as duas hipóteses, e arrasta o `BROADCAST_STALL_MS` do painel atrás (ver incidente de 09/11).
+
+## ✅ O leitor de eventos lia a chave errada — corrigido em 2026-11-25
+
+**Era `EventType`, não `event`.** As três amostras reais, capturadas pela sonda de 23/11:
+
+| EventType | onde está o que importa |
+|---|---|
+| `messages` | chave `event` **não existe**; mensagem em `message` |
+| `messages_update` | status em `state` (topo) e `event.Type`; telefone em `event.chatid` |
+| `connection` | `instance.status`, `instance.lastDisconnectReason`, `type: "LoggedOut"` |
+
+Em `messages_update` e `connection` o campo `event` **existe, mas é o objeto do evento** — então o `String(payload.event ?? '')` de 16/11 virava `"[object object]"` e nenhum `includes` casava. Os dois eventos chegaram certinho de 16/11 a 25/11 e foram descartados em silêncio, devolvendo `no message`.
+
+**A suspeita do `wasSentByApi` estava errada e está descartada** — a assinatura entregava desde o primeiro dia; o leitor procurava no lugar errado. Não há motivo para tirar `wasSentByApi` do `excludeMessages`.
+
+**Custo real do erro:** a queda de 24/11 às 14:02, no meio do devocional, não ficou registrada em lugar nenhum — a tabela acima teve que ser reconstruída somando cursores de faixa à mão, no KV.
+
+**Teste:** `scripts/_check-eventos.ts` — 14 casos com os payloads reais, chamando o `onRequest` de verdade. Mantido no repo de propósito (contrário à convenção de apagar os `_check-*`): o formato é contrato com a Uazapi e já quebrou calado uma vez. Contra o código de antes do fix, 10 dos 14 falham.
+
+```bash
+npx esbuild scripts/_check-eventos.ts --bundle --platform=node --format=esm --outfile=/tmp/chk.mjs && node /tmp/chk.mjs
+```
+
+**Conferir depois do deploy:** `sessao:estado` tem que existir na próxima mudança de conexão, e `entrega:` tem que encher no próximo devocional.
+
+## 🔔 Eventos da Uazapi assinados em 2026-11-16 — contexto histórico
 
 O webhook assinava só `messages`. Agora assina **`messages`, `messages_update` e `connection`**, no mesmo destino `r1e0d70c0ac34f6` (sem duplicar), com URL, secret e `excludeMessages` preservados.
 
@@ -47,7 +92,9 @@ npx wrangler kv key list --namespace-id $NS --remote --prefix "entrega:"        
 npx wrangler kv key get  --namespace-id $NS --remote "sessao:estado"
 ```
 
-🔴 **O risco concreto a vigiar:** `excludeMessages` tem `wasSentByApi`, e o devocional **é** enviado por API. Se esse filtro valer também para `messages_update`, a Uazapi vai engolir exatamente os eventos que interessam, e `entrega:` ficará vazio para sempre.
+~~🔴 **O risco concreto a vigiar:** `excludeMessages` tem `wasSentByApi`, e o devocional **é** enviado por API. Se esse filtro valer também para `messages_update`, a Uazapi vai engolir exatamente os eventos que interessam, e `entrega:` ficará vazio para sempre.~~
+
+❌ **Hipótese derrubada em 25/11.** O `entrega:` ficou vazio porque o leitor procurava `payload.event` em vez de `payload.EventType` — ver a seção corrigida acima. O `excludeMessages` não tem culpa e fica como está.
 
 **Como saber:** depois do próximo devocional (531 alvos), `entrega:` tem que ter centenas de chaves. Se continuar em zero, é o filtro. **A correção seria tirar `wasSentByApi` do `excludeMessages`** — seguro hoje, porque o webhook já ignora mensagem própria (`fromMe`) e a frase de passagem de atendimento exige `!wasSentByApi`, então mensagem de API nunca dispara a pausa. Mas aí o webhook passa a receber as ~531 do disparo como evento também, e isso precisa ser medido antes.
 

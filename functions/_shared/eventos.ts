@@ -173,11 +173,23 @@ const ENTREGA_PREFIX = 'entrega:';
 export async function registrarEntrega(env: Env, payload: unknown): Promise<string> {
   await guardarAmostra(env, 'messages_update', payload);
 
+  // Os dois primeiros caminhos de cada lista são o formato REAL, confirmado em
+  // 2026-11-25 pela amostra da sonda:
+  //
+  //   { EventType: "messages_update", state: "Delivered", type: "ReadReceipt",
+  //     event: { Chat, chatid, Type: "Delivered", MessageIDs: [...] } }
+  //
+  // O status mora em `state` (topo) ou `event.Type`, e o telefone em
+  // `event.chatid`. Nenhum dos caminhos que eu havia escrito em 16/11 — todos
+  // em cima de `status` e `chatid` no topo — existe neste payload. O resto da
+  // lista fica como rede, para a Uazapi mudar de formato sem apagar a medição.
   const chatid = pegar(payload,
+    ['event', 'chatid'], ['event', 'Chat'],
     ['chatid'], ['message', 'chatid'], ['data', 'chatid'],
     ['key', 'remoteJid'], ['message', 'key', 'remoteJid'], ['data', 'key', 'remoteJid'],
   );
   const status = pegar(payload,
+    ['state'], ['event', 'Type'],
     ['status'], ['message', 'status'], ['data', 'status'],
   ).toLowerCase();
 
